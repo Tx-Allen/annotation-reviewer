@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>标注核对</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="title">标注核对</div>
+      <div class="meta">
+        检察员: <b id="reviewer">{{ reviewer }}</b>
+      </div>
+      <div class="filter-row">
+        <select id="filter">
+          <option value="all">全部</option>
+          <option value="todo">未审</option>
+          <option value="pass">通过</option>
+          <option value="fail">不通过</option>
+          <option value="doubt">存疑</option>
+        </select>
+        <span id="progress" class="progress">0 / 0</span>
+      </div>
+      <div class="actions-row">
+        <a href="/api/export" class="btn-link">导出 CSV</a>
+      </div>
+    </div>
+    <ul id="list" class="list"></ul>
+  </aside>
+
+  <main class="main">
+    <div id="empty" class="empty">从左侧选择一条记录开始核对</div>
+    <div id="detail" class="detail hidden">
+      <div class="detail-head">
+        <span class="badge" id="d-status">未审</span>
+        <span class="d-id">#<span id="d-id">-</span></span>
+        <span class="d-filename" id="d-filename">-</span>
+        <span class="spacer"></span>
+        <button id="prev-btn" class="btn">← 上一条 (J)</button>
+        <button id="next-btn" class="btn">下一条 (K) →</button>
+      </div>
+      <div class="detail-body">
+        <div class="img-wrap">
+          <img id="d-img" alt="">
+          <div class="img-hint">点击图片放大;键盘 1 通过 / 2 不通过 / 3 存疑 / Enter 保存</div>
+        </div>
+        <div class="fields" id="fields"></div>
+      </div>
+      <div class="detail-foot">
+        <input id="note" type="text" placeholder="备注(可选)">
+        <button class="btn btn-pass"  data-status="pass">通过 (1)</button>
+        <button class="btn btn-fail"  data-status="fail">不通过 (2)</button>
+        <button class="btn btn-doubt" data-status="doubt">存疑 (3)</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="lightbox" class="lightbox hidden"><img id="lb-img" alt=""></div>
+
+<script src="{{ url_for('static', filename='review.js') }}"></script>
+</body>
+</html>

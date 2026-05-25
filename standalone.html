@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>标注核对(本地版)</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: #222; background: #f5f5f7; }
+
+/* Setup screen */
+#setup, #pack-setup { max-width: 640px; margin: 60px auto; padding: 28px; background: #fff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+#setup h1, #pack-setup h1 { margin: 0 0 6px; font-size: 22px; }
+#setup .hint, #pack-setup .hint { color: #777; font-size: 13px; margin-bottom: 18px; }
+#setup .row, #pack-setup .row { margin: 14px 0; display: flex; flex-direction: column; gap: 6px; }
+#setup label, #pack-setup label { font-size: 13px; color: #555; }
+#setup input[type=file], #setup input[type=text], #pack-setup input[type=file], #pack-setup input[type=text] { padding: 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; width: 100%; }
+#setup .status, #pack-setup .status { font-size: 12px; color: #888; min-height: 16px; }
+#setup .status.ok, #pack-setup .status.ok { color: #1a9d4b; }
+#setup .status.err, #pack-setup .status.err { color: #d63939; }
+.btn-primary { background: #2868f3; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.btn-primary:hover:not(:disabled) { background: #1d56d9; }
+.btn-primary:disabled { background: #b0c4e8; cursor: not-allowed; }
+.btn-secondary { background: #fff; color: #2868f3; border: 1px solid #2868f3; padding: 9px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; }
+.btn-secondary:hover { background: #f0f5ff; }
+#setup hr, #pack-setup hr { border: none; border-top: 1px solid #ececf0; margin: 22px 0 16px; }
+.button-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pack-entry { padding: 10px 12px; background: #fff8e1; border: 1px dashed #d59300; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; font-size: 13px; }
+.pack-entry .file-btn { background: #d59300; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; border: none; }
+.pack-entry .file-btn:hover { background: #b87900; }
+.pack-info { padding: 12px; background: #f5f7ff; border: 1px solid #d0dbff; border-radius: 6px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+.pack-info b { color: #2868f3; }
+
+.sample-options { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: #fafbff; border: 1px solid #ececf0; border-radius: 6px; }
+.sample-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
+.sample-opt input[type=number], .sample-opt select, .sample-opt input[type=text] { padding: 3px 6px; border: 1px solid #d0d0d6; border-radius: 4px; font-size: 13px; background: #fff; }
+.sample-opt em { color: #1a7d3b; font-style: normal; font-size: 12px; }
+.seed-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; padding-top: 4px; border-top: 1px dashed #ececf0; margin-top: 2px; }
+.seed-row input { width: 120px; }
+
+/* Modal */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 998; }
+.modal.show { display: flex; }
+.modal-card { background: #fff; padding: 22px; border-radius: 12px; max-width: 540px; width: 90%; max-height: 80vh; overflow-y: auto; }
+.modal-card h2 { margin: 0 0 8px; font-size: 18px; }
+.modal-card .hint { color: #777; font-size: 13px; margin-bottom: 14px; }
+.modal-card textarea { width: 100%; min-height: 120px; padding: 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; resize: vertical; }
+.modal-card .row { margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.modal-card label { font-size: 13px; color: #555; }
+.modal-card .preview { padding: 10px; background: #f5f5f7; border-radius: 6px; font-size: 12px; color: #444; max-height: 160px; overflow-y: auto; font-family: ui-monospace, Consolas, monospace; }
+.modal-card .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+
+/* Main */
+.app { display: none; height: 100vh; }
+.app.show { display: flex; }
+.sidebar { width: 300px; min-width: 300px; background: #fff; border-right: 1px solid #e2e2e6; display: flex; flex-direction: column; }
+.sidebar-head { padding: 12px; border-bottom: 1px solid #ececf0; }
+.sidebar-head .title { font-weight: 600; font-size: 15px; }
+.sidebar-head .meta { font-size: 12px; color: #666; margin-top: 4px; }
+.filter-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.filter-row select { flex: 1; padding: 4px 6px; border-radius: 6px; border: 1px solid #ddd; font-size: 13px; }
+.progress { font-size: 12px; color: #555; }
+.actions-row { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-link { font-size: 12px; color: #2868f3; text-decoration: none; cursor: pointer; background: none; border: none; padding: 0; }
+.btn-link:hover { text-decoration: underline; }
+.btn-link.danger { color: #d63939; }
+
+.list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.list li { padding: 8px 12px; border-bottom: 1px solid #f1f1f4; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.list li:hover { background: #f7f9fb; }
+.list li.active { background: #e7f0ff; }
+.list .st { width: 16px; text-align: center; font-weight: 600; }
+.list .st.pass { color: #1a9d4b; }
+.list .st.fail { color: #d63939; }
+.list .st.doubt { color: #d59300; }
+.list .st.todo { color: #aaa; }
+.list .id { color: #888; font-variant-numeric: tabular-nums; min-width: 36px; }
+.list .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.main { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
+.detail { display: flex; flex-direction: column; flex: 1; gap: 12px; }
+.detail-head { display: flex; align-items: center; gap: 10px; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
+.badge.pass { background: #def2e2; color: #1a7d3b; }
+.badge.fail { background: #f8dcde; color: #b32a30; }
+.badge.doubt { background: #fbeac1; color: #8a6200; }
+.d-id { font-variant-numeric: tabular-nums; color: #666; font-size: 13px; }
+.d-filename { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: #333; }
+.spacer { flex: 1; }
+.btn { padding: 6px 12px; border: 1px solid #d0d0d6; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #f3f5f8; }
+.btn-pass { border-color: #1a9d4b; color: #1a9d4b; }
+.btn-fail { border-color: #d63939; color: #d63939; }
+.btn-doubt { border-color: #d59300; color: #d59300; }
+
+.detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+.img-wrap { background: #1c1c20; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+.img-wrap img { max-width: 100%; max-height: calc(100% - 28px); object-fit: contain; cursor: zoom-in; }
+.img-hint { color: #aab; font-size: 11px; padding: 6px 0; text-align: center; }
+
+.fields { background: #fff; border: 1px solid #ececf0; border-radius: 8px; padding: 12px; overflow-y: auto; }
+.field-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
+.field-row label { font-size: 12px; color: #666; }
+.field-row input, .field-row select { padding: 5px 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; width: 100%; background: #fff; }
+.field-row.edited input, .field-row.edited select { background: #fff8d4; border-color: #d59300; }
+.field-row.readonly input { background: #f5f5f7; color: #888; }
+.field-meta { color: #999; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #eee; }
+
+.detail-foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #ececf0; }
+#note { flex: 1; padding: 6px 10px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; }
+
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 999; cursor: zoom-out; }
+.lightbox.show { display: flex; }
+.lightbox img { max-width: 95vw; max-height: 95vh; object-fit: contain; }
+</style>
+</head>
+<body>
+
+<!-- 启动页(管理员/自助) -->
+<div id="setup">
+  <h1>标注核对(本地版)</h1>
+  <p class="hint">完全离线运行,CSV 和图片都不离开你的电脑。进度自动存浏览器,也可导出 JSON 备份。</p>
+
+  <div class="pack-entry">
+    <span>📦 收到管理员发的任务包?直接导入,跳过下面所有步骤。</span>
+    <label class="file-btn">
+      导入任务包
+      <input type="file" id="pack-input" accept=".json" style="display:none">
+    </label>
+  </div>
+
+  <div class="row">
+    <label>① 选 CSV 文件</label>
+    <input type="file" id="csv-input" accept=".csv,.tsv,text/csv">
+    <div class="status" id="csv-status">未选择</div>
+  </div>
+  <div class="row">
+    <label>② 选图片文件夹</label>
+    <input type="file" id="folder-input" webkitdirectory directory multiple>
+    <div class="status" id="folder-status">未选择</div>
+  </div>
+  <div class="row" id="col-row" style="display:none;">
+    <label>③ 图片在哪一列?(选完 CSV 和文件夹后自动检测,可改)</label>
+    <select id="col-input"></select>
+    <div class="status" id="col-status"></div>
+  </div>
+  <div class="row" id="sample-row" style="display:none;">
+    <label>④ 抽检方式(不用全部审,只抽一部分)</label>
+    <div class="sample-options">
+      <label class="sample-opt" id="sample-opt-existing" style="display:none;">
+        <input type="radio" name="sample" value="existing" checked>
+        继续已有抽样 <em id="sample-existing-info"></em>
+      </label>
+      <label class="sample-opt">
+        <input type="radio" name="sample" value="all"> 全部审(<span id="sample-total">0</span> 条)
+      </label>
+      <label class="sample-opt">
+        <input type="radio" name="sample" value="random" checked> 随机抽
+        <input type="number" id="sample-n" min="1" value="20"> 条
+      </label>
+      <label class="sample-opt">
+        <input type="radio" name="sample" value="strat"> 按
+        <select id="sample-strat-col"></select>
+        分层,每组抽 <input type="number" id="sample-strat-n" min="1" value="5"> 条
+      </label>
+      <div class="seed-row">
+        🎲 随机种子(可选,留空则每次抽不同;填了就可复现): <input type="text" id="sample-seed" placeholder="例如 audit-2026q2">
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <label>⑤ 检察员名字</label>
+    <input type="text" id="reviewer-input" placeholder="你的名字(管理员模式可留空)" value="">
+  </div>
+
+  <div class="button-row">
+    <button id="start-btn" class="btn-primary" disabled>开始核对</button>
+    <button id="distribute-btn" class="btn-secondary" disabled type="button">📤 分给多人 ↓</button>
+  </div>
+
+  <hr>
+  <div class="row">
+    <label>本机进度备份</label>
+    <div class="button-row">
+      <button id="export-state" class="btn-secondary" type="button">导出进度 JSON</button>
+      <label class="btn-secondary" style="cursor:pointer;">
+        导入进度
+        <input type="file" id="import-state" accept=".json" style="display:none">
+      </label>
+      <span id="state-info" class="status"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 任务包模式启动页(检察员导入后看到) -->
+<div id="pack-setup" style="display:none;">
+  <h1>📦 已加载任务包</h1>
+  <p class="hint">由管理员分配。你只需选择图片文件夹就能开始。</p>
+  <div class="pack-info" id="pack-info"></div>
+  <div class="row">
+    <label>选图片文件夹(找管理员告诉你的那个文件夹)</label>
+    <input type="file" id="pack-folder-input" webkitdirectory directory multiple>
+    <div class="status" id="pack-folder-status">未选择</div>
+  </div>
+  <div class="row">
+    <label>确认你的名字</label>
+    <input type="text" id="pack-reviewer-input" placeholder="你的名字">
+  </div>
+  <div class="button-row">
+    <button id="pack-start-btn" class="btn-primary" disabled>开始核对</button>
+    <button id="pack-cancel-btn" class="btn-secondary" type="button">取消</button>
+  </div>
+</div>
+
+<!-- 分包模态框 -->
+<div id="distribute-modal" class="modal">
+  <div class="modal-card">
+    <h2>📤 分给多人核对</h2>
+    <p class="hint">把当前抽样(<span id="dist-sample-count">0</span> 条)按检察员均分,每人生成一个独立的任务包 JSON。把这些 JSON 发给检察员,她们用「导入任务包」加载即可。图片文件夹要另外发(JSON 不含图片)。</p>
+    <div class="row">
+      <label>检察员名字(每行一个,空行忽略)</label>
+      <textarea id="dist-reviewers" placeholder="小明&#10;小红&#10;小李"></textarea>
+    </div>
+    <div class="row">
+      <label>分配预览</label>
+      <div class="preview" id="dist-preview">填了名字之后会显示</div>
+    </div>
+    <div class="actions">
+      <button id="dist-cancel" class="btn-secondary" type="button">取消</button>
+      <button id="dist-go" class="btn-primary" type="button">生成并下载 N 个任务包</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="app" class="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="title">标注核对</div>
+      <div class="meta">检察员: <b id="who"></b> · <span id="csv-name"></span> · <span id="scope-info"></span></div>
+      <div class="filter-row">
+        <select id="filter">
+          <option value="all">全部</option>
+          <option value="todo">未审</option>
+          <option value="pass">通过</option>
+          <option value="fail">不通过</option>
+          <option value="doubt">存疑</option>
+        </select>
+        <span id="progress" class="progress">0 / 0</span>
+      </div>
+      <div class="actions-row">
+        <button class="btn-link" data-export="sample">导出抽样</button>
+        <button class="btn-link" data-export="reviewed">仅已审</button>
+        <button class="btn-link" data-export="full" id="export-full-btn">全部CSV</button>
+        <button class="btn-link" id="export-state2">备份进度</button>
+        <button class="btn-link" id="reload-setup">重新加载</button>
+      </div>
+    </div>
+    <ul id="list" class="list"></ul>
+  </aside>
+
+  <main class="main">
+    <div class="detail">
+      <div class="detail-head">
+        <span class="badge" id="d-status">未审</span>
+        <span class="d-id">#<span id="d-id">-</span></span>
+        <span class="d-filename" id="d-filename">-</span>
+        <span class="spacer"></span>
+        <button id="prev-btn" class="btn">← 上一条 (J)</button>
+        <button id="next-btn" class="btn">下一条 (K) →</button>
+      </div>
+      <div class="detail-body">
+        <div class="img-wrap">
+          <img id="d-img" alt="">
+          <div class="img-hint">点击图片放大;键盘 1 通过 / 2 不通过 / 3 存疑</div>
+        </div>
+        <div class="fields" id="fields"></div>
+      </div>
+      <div class="detail-foot">
+        <input id="note" type="text" placeholder="备注(可选)">
+        <button class="btn btn-pass" data-status="pass">通过 (1)</button>
+        <button class="btn btn-fail" data-status="fail">不通过 (2)</button>
+        <button class="btn btn-doubt" data-status="doubt">存疑 (3)</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="lightbox" class="lightbox"><img id="lb-img" alt=""></div>
+
+<script>
+// ========== CSV 解析 ==========
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], n = text[i+1];
+    if (q) {
+      if (c === '"' && n === '"') { field += '"'; i++; }
+      else if (c === '"') q = false;
+      else field += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c === '\r') {}
+      else field += c;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function csvToObjects(rows) {
+  if (!rows.length) return { header: [], rows: [] };
+  const header = rows[0];
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.length || (r.length === 1 && !r[0])) continue;
+    const o = {};
+    header.forEach((k, j) => { o[k] = r[j] !== undefined ? r[j] : ''; });
+    out.push(o);
+  }
+  return { header, rows: out };
+}
+
+function extractFilename(url) {
+  let s = '';
+  try { s = decodeURIComponent(url || ''); } catch { s = url || ''; }
+  if (s.includes('?d=')) s = s.split('?d=')[1];
+  s = s.replace(/\\/g, '/');
+  return s.split('/').pop();
+}
+
+function csvQuote(v) {
+  v = String(v ?? '');
+  return /[,"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+function downloadFile(name, content, mime) {
+  const blob = new Blob(['﻿' + content], { type: mime || 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function downloadJSON(name, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ========== 种子随机 ==========
+function hashSeed(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h || 1;
+}
+function mulberry32(a) {
+  return function() {
+    let t = (a += 0x6D2B79F5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeRng(seed) {
+  if (!seed) return Math.random;
+  return mulberry32(hashSeed(String(seed)));
+}
+
+// ========== 应用状态 ==========
+const FIELDS = [
+  { key: 'colour', label: '颜色', dropdown: true },
+  { key: 'defects', label: '瑕疵', dropdown: true },
+  { key: 'object_type', label: '器型', dropdown: true },
+  { key: 'subtype_carving', label: '雕刻子类', dropdown: true },
+  { key: 'subtype_jewelry', label: '首饰子类', dropdown: true },
+  { key: 'subtype_ritual', label: '礼器子类', dropdown: true },
+  { key: 'texture', label: '纹理', dropdown: true },
+  { key: 'transparency', label: '透明度', dropdown: true },
+  { key: 'annotator', label: '原标注员', dropdown: true },
+  { key: 'lead_time', label: '用时(秒)', readonly: true },
+  { key: 'created_at', label: '创建时间', readonly: true },
+];
+
+const state = {
+  csvName: '',
+  reviewer: '',
+  header: [],
+  rows: [],         // 当前审的子集(抽样后)
+  fullRows: [],     // CSV 全量(在 pack 模式下 = rows)
+  totalRows: 0,
+  options: {},
+  imageMap: new Map(),
+  imageColumn: '',
+  index: -1,
+  filter: 'all',
+  edits: {},
+  packMode: false,
+};
+
+// ========== 抽样 ==========
+function sampleKey(csvName) { return `sample:${csvName}`; }
+function loadSampleIds(csvName) {
+  const raw = localStorage.getItem(sampleKey(csvName));
+  return raw ? JSON.parse(raw) : null;
+}
+function saveSampleIds(csvName, ids) {
+  localStorage.setItem(sampleKey(csvName), JSON.stringify(ids));
+}
+function shuffle(arr, rng) {
+  rng = rng || Math.random;
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function computeSample(rows, mode, n, stratCol, stratN, seed) {
+  const rng = makeRng(seed);
+  const idOf = r => String(r.annotation_id);
+  if (mode === 'all') return rows.map(idOf);
+  if (mode === 'random') {
+    return shuffle(rows, rng).slice(0, Math.min(n, rows.length)).map(idOf);
+  }
+  if (mode === 'strat' && stratCol) {
+    const groups = {};
+    rows.forEach(r => {
+      const k = (r[stratCol] ?? '').toString() || '__empty__';
+      (groups[k] = groups[k] || []).push(r);
+    });
+    const out = [];
+    Object.values(groups).forEach(grp => {
+      shuffle(grp, rng).slice(0, Math.min(stratN, grp.length)).forEach(r => out.push(idOf(r)));
+    });
+    return out;
+  }
+  return rows.map(idOf);
+}
+
+const $ = sel => document.querySelector(sel);
+
+// ========== 启动页(CSV/自助/管理员) ==========
+const csvInput = $('#csv-input');
+const folderInput = $('#folder-input');
+const reviewerInput = $('#reviewer-input');
+const startBtn = $('#start-btn');
+const distributeBtn = $('#distribute-btn');
+let pendingCSV = null;
+
+function updateButtons() {
+  const ready = !!pendingCSV && state.imageMap.size > 0;
+  startBtn.disabled = !ready;
+  distributeBtn.disabled = !pendingCSV; // 分包不需要图片文件夹(只产 JSON)
+}
+
+csvInput.addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  const parsed = csvToObjects(parseCSV(text));
+  parsed.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  pendingCSV = { name: f.name, header: parsed.header, rows: parsed.rows };
+  $('#csv-status').textContent = `✓ ${f.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
+  $('#csv-status').className = 'status ok';
+  updateColumnDetection();
+  updateSamplingUI();
+  updateButtons();
+});
+
+folderInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files);
+  state.imageMap.clear();
+  files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
+  $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
+  $('#folder-status').className = 'status ok';
+  updateColumnDetection();
+  updateButtons();
+});
+
+function updateSamplingUI() {
+  if (!pendingCSV) { $('#sample-row').style.display = 'none'; return; }
+  $('#sample-row').style.display = 'flex';
+  $('#sample-total').textContent = pendingCSV.rows.length;
+  const nInput = $('#sample-n');
+  if (parseInt(nInput.value, 10) > pendingCSV.rows.length) {
+    nInput.value = Math.min(20, pendingCSV.rows.length);
+  }
+  const sel = $('#sample-strat-col');
+  sel.innerHTML = '';
+  pendingCSV.header.forEach(col => {
+    const opt = document.createElement('option');
+    opt.value = col;
+    opt.textContent = col;
+    sel.appendChild(opt);
+  });
+  if (pendingCSV.header.includes('annotator')) sel.value = 'annotator';
+  const existing = loadSampleIds(pendingCSV.name);
+  const optExist = $('#sample-opt-existing');
+  if (existing && existing.length) {
+    let done = 0;
+    existing.forEach(id => {
+      if (localStorage.getItem(`review:${pendingCSV.name}:${id}`)) done++;
+    });
+    $('#sample-existing-info').textContent = `(${existing.length} 条,已审 ${done})`;
+    optExist.style.display = 'flex';
+    optExist.querySelector('input').checked = true;
+  } else {
+    optExist.style.display = 'none';
+    document.querySelector('input[name="sample"][value="random"]').checked = true;
+  }
+}
+
+function updateColumnDetection() {
+  const row = $('#col-row');
+  if (!pendingCSV || !state.imageMap.size) {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = 'flex';
+  const total = pendingCSV.rows.length;
+  const scores = pendingCSV.header.map(col => {
+    let matched = 0;
+    pendingCSV.rows.forEach(r => {
+      const v = (r[col] || '').trim();
+      if (!v) return;
+      const fn = extractFilename(v);
+      if (fn && state.imageMap.has(fn.toLowerCase())) matched++;
+    });
+    return { col, matched };
+  });
+  scores.sort((a, b) => b.matched - a.matched);
+  const sel = $('#col-input');
+  sel.innerHTML = '';
+  scores.forEach(({ col, matched }) => {
+    const opt = document.createElement('option');
+    opt.value = col;
+    opt.textContent = `${col}  (${matched}/${total} 匹配)`;
+    sel.appendChild(opt);
+  });
+  const best = scores[0];
+  const stat = $('#col-status');
+  if (best.matched > 0) {
+    sel.value = best.col;
+    stat.textContent = `✓ 自动选中 "${best.col}" — ${best.matched}/${total} 匹配`;
+    stat.className = 'status ok';
+  } else {
+    stat.textContent = `⚠ 没有列能匹配文件夹里的图片(${state.imageMap.size} 个文件)。检查是不是文件夹选错了。`;
+    stat.className = 'status err';
+  }
+}
+
+// 从启动页设置算出当前抽样 ids
+function currentSampleIds() {
+  const mode = document.querySelector('input[name="sample"]:checked').value;
+  if (mode === 'existing') return loadSampleIds(pendingCSV.name) || [];
+  const n = parseInt($('#sample-n').value, 10) || pendingCSV.rows.length;
+  const stratCol = $('#sample-strat-col').value;
+  const stratN = parseInt($('#sample-strat-n').value, 10) || 1;
+  const seed = $('#sample-seed').value.trim();
+  return computeSample(pendingCSV.rows, mode, n, stratCol, stratN, seed);
+}
+
+startBtn.addEventListener('click', () => {
+  state.csvName = pendingCSV.name;
+  state.header = pendingCSV.header;
+  state.fullRows = pendingCSV.rows.slice();
+  state.totalRows = pendingCSV.rows.length;
+
+  const sampleMode = document.querySelector('input[name="sample"]:checked').value;
+  let sampleIds = currentSampleIds();
+  if (sampleMode !== 'all' && sampleMode !== 'existing') {
+    saveSampleIds(pendingCSV.name, sampleIds);
+  } else if (sampleMode === 'all') {
+    localStorage.removeItem(sampleKey(pendingCSV.name));
+  }
+  const idSet = new Set(sampleIds.map(String));
+  state.rows = pendingCSV.rows.filter(r => idSet.has(String(r.annotation_id)));
+  if (!state.rows.length) {
+    alert('抽样结果为空,请检查设置');
+    return;
+  }
+
+  state.reviewer = reviewerInput.value.trim() || 'anonymous';
+  state.imageColumn = $('#col-input').value || 'image';
+  state.options = collectOptions(state.rows);
+  state.packMode = false;
+  initApp();
+});
+
+// ========== 分包给多人 ==========
+distributeBtn.addEventListener('click', () => {
+  const sampleIds = currentSampleIds();
+  $('#dist-sample-count').textContent = sampleIds.length;
+  $('#dist-reviewers').value = '';
+  $('#dist-preview').textContent = '填了名字之后会显示';
+  $('#distribute-modal').classList.add('show');
+});
+
+$('#dist-cancel').addEventListener('click', () => $('#distribute-modal').classList.remove('show'));
+
+$('#dist-reviewers').addEventListener('input', () => {
+  const names = $('#dist-reviewers').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const total = parseInt($('#dist-sample-count').textContent, 10);
+  if (!names.length || !total) {
+    $('#dist-preview').textContent = '填了名字之后会显示';
+    return;
+  }
+  const per = Math.floor(total / names.length);
+  const rem = total - per * names.length;
+  $('#dist-preview').textContent = names.map((n, i) => {
+    const cnt = per + (i < rem ? 1 : 0);
+    return `${n.padEnd(12)}  ${cnt} 条`;
+  }).join('\n') + `\n\n共 ${names.length} 人,${total} 条,均分(余数前几人多 1 条)`;
+});
+
+$('#dist-go').addEventListener('click', () => {
+  const names = $('#dist-reviewers').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!names.length) { alert('请填至少一个检察员名字'); return; }
+  const sampleIds = new Set(currentSampleIds().map(String));
+  const sampleRows = pendingCSV.rows.filter(r => sampleIds.has(String(r.annotation_id)));
+  if (!sampleRows.length) { alert('抽样为空'); return; }
+
+  // 用同样的种子洗牌后均分
+  const seed = $('#sample-seed').value.trim();
+  const rng = makeRng(seed ? seed + ':distribute' : null);
+  const shuffled = shuffle(sampleRows, rng);
+  const chunks = names.map(() => []);
+  shuffled.forEach((row, i) => chunks[i % names.length].push(row));
+
+  const now = new Date().toISOString();
+  const adminName = reviewerInput.value.trim() || 'admin';
+  names.forEach((name, i) => {
+    const pack = {
+      version: 1,
+      kind: 'reviewer-pack',
+      csv_name: pendingCSV.name,
+      image_column: $('#col-input').value || 'image',
+      reviewer: name,
+      header: pendingCSV.header,
+      sample_rows: chunks[i],
+      total_csv_rows: pendingCSV.rows.length,
+      seed: seed || null,
+      created_by: adminName,
+      created_at: now,
+    };
+    const safeName = name.replace(/[^\w一-龥-]/g, '_');
+    downloadJSON(`pack-${safeName}.json`, pack);
+  });
+  $('#distribute-modal').classList.remove('show');
+  alert(`已生成 ${names.length} 个任务包。把每个 JSON 发给对应的检察员,记得另外发图片文件夹。`);
+});
+
+// ========== 导入任务包(检察员)==========
+$('#pack-input').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const pack = JSON.parse(await f.text());
+    if (pack.kind !== 'reviewer-pack' || !Array.isArray(pack.sample_rows)) {
+      throw new Error('不是合法的任务包 JSON');
+    }
+    enterPackMode(pack);
+  } catch (err) {
+    alert('任务包加载失败: ' + err.message);
+  }
+});
+
+let pendingPack = null;
+function enterPackMode(pack) {
+  pendingPack = pack;
+  $('#setup').style.display = 'none';
+  $('#pack-setup').style.display = 'block';
+  $('#pack-info').innerHTML = `
+    📦 任务包来源: <b>${escAttr(pack.created_by || '?')}</b>
+    · 原 CSV: <b>${escAttr(pack.csv_name)}</b><br>
+    分给你的: <b>${pack.sample_rows.length}</b> 条
+    (整个抽样池 ${pack.total_csv_rows || pack.sample_rows.length} 条)<br>
+    你: <b>${escAttr(pack.reviewer)}</b>
+    · 创建于 ${new Date(pack.created_at).toLocaleString()}
+    ${pack.seed ? `· 种子 <code>${escAttr(pack.seed)}</code>` : ''}
+  `;
+  $('#pack-reviewer-input').value = pack.reviewer || '';
+  $('#pack-folder-status').textContent = '未选择';
+  $('#pack-folder-status').className = 'status';
+  $('#pack-start-btn').disabled = true;
+}
+
+$('#pack-cancel-btn').addEventListener('click', () => {
+  pendingPack = null;
+  $('#pack-setup').style.display = 'none';
+  $('#setup').style.display = 'block';
+});
+
+$('#pack-folder-input').addEventListener('change', (e) => {
+  const files = Array.from(e.target.files);
+  state.imageMap.clear();
+  files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
+  // 算一下匹配率
+  const col = pendingPack.image_column || 'image';
+  let matched = 0;
+  pendingPack.sample_rows.forEach(r => {
+    const fn = extractFilename(r[col]);
+    if (fn && state.imageMap.has(fn.toLowerCase())) matched++;
+  });
+  const stat = $('#pack-folder-status');
+  stat.textContent = `✓ ${files.length} 个文件 · 你的任务包里 ${matched}/${pendingPack.sample_rows.length} 张能匹配`;
+  stat.className = matched > 0 ? 'status ok' : 'status err';
+  $('#pack-start-btn').disabled = matched === 0;
+});
+
+$('#pack-start-btn').addEventListener('click', () => {
+  if (!pendingPack || !state.imageMap.size) return;
+  state.csvName = `pack:${pendingPack.reviewer}:${pendingPack.csv_name}`;
+  state.header = pendingPack.header || Object.keys(pendingPack.sample_rows[0] || {});
+  state.fullRows = pendingPack.sample_rows.slice();
+  state.totalRows = pendingPack.total_csv_rows || pendingPack.sample_rows.length;
+  state.rows = pendingPack.sample_rows.slice();
+  state.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  state.imageColumn = pendingPack.image_column || 'image';
+  state.reviewer = $('#pack-reviewer-input').value.trim() || pendingPack.reviewer || 'anonymous';
+  state.options = collectOptions(state.rows);
+  state.packMode = true;
+  $('#pack-setup').style.display = 'none';
+  initApp();
+});
+
+// ========== 进度备份 ==========
+$('#reload-setup').addEventListener('click', () => location.reload());
+
+function refreshStateInfo() {
+  const counts = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    const m = k && k.match(/^review:(.+?):/);
+    if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
+  }
+  const entries = Object.entries(counts);
+  const info = $('#state-info');
+  if (!entries.length) { info.textContent = '本机暂无已保存进度'; return; }
+  info.textContent = entries.map(([c, n]) => `${c.length > 30 ? c.slice(0, 30) + '...' : c}: ${n} 条`).join(' · ');
+}
+refreshStateInfo();
+
+$('#export-state').addEventListener('click', exportProgress);
+$('#import-state').addEventListener('change', importProgress);
+
+function exportProgress() {
+  const data = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('review:')) data[k] = JSON.parse(localStorage.getItem(k));
+  }
+  if (!Object.keys(data).length) { alert('没有可导出的进度'); return; }
+  downloadFile(`reviewer-progress-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(data, null, 2), 'application/json');
+}
+
+async function importProgress(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    let n = 0;
+    Object.entries(data).forEach(([k, v]) => {
+      if (k.startsWith('review:')) { localStorage.setItem(k, JSON.stringify(v)); n++; }
+    });
+    alert(`已导入 ${n} 条进度`);
+    refreshStateInfo();
+  } catch (err) {
+    alert('导入失败: ' + err.message);
+  }
+}
+
+// ========== 主应用 ==========
+function collectOptions(rows) {
+  const opts = {};
+  FIELDS.filter(f => f.dropdown).forEach(f => {
+    const set = new Set();
+    rows.forEach(r => {
+      const v = (r[f.key] || '').trim();
+      if (v) set.add(v);
+    });
+    opts[f.key] = Array.from(set).sort();
+  });
+  return opts;
+}
+
+function reviewKey(annoId) { return `review:${state.csvName}:${annoId}`; }
+function loadReview(annoId) {
+  const raw = localStorage.getItem(reviewKey(annoId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+function initApp() {
+  $('#app').classList.add('show');
+  $('#who').textContent = state.reviewer;
+  $('#csv-name').textContent = state.packMode ? `📦 任务包(${state.rows.length} 条)` : `CSV: ${state.csvName}`;
+  $('#scope-info').textContent = state.rows.length < state.totalRows
+    ? `抽样 ${state.rows.length}/${state.totalRows}`
+    : `全部 ${state.totalRows}`;
+  // pack 模式下"全部 CSV"按钮没意义,隐藏
+  $('#export-full-btn').style.display = state.packMode ? 'none' : 'inline';
+  bindAppEvents();
+  renderList();
+  const i = firstVisibleIndex();
+  if (i >= 0) selectIndex(i);
+}
+
+function statusKey(s) { return s || 'todo'; }
+function statusSym(s) { return { pass:'✓', fail:'✗', doubt:'?', todo:'·' }[statusKey(s)]; }
+function statusLabel(s) { return { pass:'通过', fail:'不通过', doubt:'存疑', todo:'未审' }[statusKey(s)]; }
+
+function rowStatus(r) {
+  const rev = loadReview(r.annotation_id);
+  return rev ? rev.status : null;
+}
+
+function passesFilter(r) {
+  const s = statusKey(rowStatus(r));
+  if (state.filter === 'all') return true;
+  if (state.filter === 'todo') return s === 'todo';
+  return s === state.filter;
+}
+
+function firstVisibleIndex() {
+  for (let i = 0; i < state.rows.length; i++) if (passesFilter(state.rows[i])) return i;
+  return -1;
+}
+
+function nextVisibleIndex(from) {
+  for (let i = from + 1; i < state.rows.length; i++) if (passesFilter(state.rows[i])) return i;
+  return -1;
+}
+
+function prevVisibleIndex(from) {
+  for (let i = from - 1; i >= 0; i--) if (passesFilter(state.rows[i])) return i;
+  return -1;
+}
+
+function renderList() {
+  const ul = $('#list');
+  ul.innerHTML = '';
+  let done = 0;
+  state.rows.forEach((r, idx) => {
+    if (rowStatus(r)) done++;
+    if (!passesFilter(r)) return;
+    const li = document.createElement('li');
+    if (idx === state.index) li.classList.add('active');
+    const s = statusKey(rowStatus(r));
+    const fn = extractFilename(r[state.imageColumn]);
+    li.innerHTML = `<span class="st ${s}">${statusSym(s)}</span>
+      <span class="id">#${r.annotation_id}</span>
+      <span class="fn" title="${fn}">${fn}</span>`;
+    li.addEventListener('click', () => selectIndex(idx));
+    ul.appendChild(li);
+  });
+  $('#progress').textContent = `${done} / ${state.rows.length}`;
+}
+
+let lastObjectURL = null;
+function selectIndex(idx) {
+  if (idx < 0 || idx >= state.rows.length) return;
+  state.index = idx;
+  state.edits = {};
+  renderList();
+  const r = state.rows[idx];
+  const review = loadReview(r.annotation_id);
+
+  $('#d-id').textContent = r.annotation_id;
+  const fn = extractFilename(r[state.imageColumn]);
+  $('#d-filename').textContent = fn;
+  const status = review ? review.status : null;
+  const badge = $('#d-status');
+  badge.className = 'badge ' + (status || '');
+  badge.textContent = statusLabel(status);
+
+  if (lastObjectURL) URL.revokeObjectURL(lastObjectURL);
+  const file = state.imageMap.get(fn.toLowerCase());
+  const img = $('#d-img');
+  if (file) {
+    lastObjectURL = URL.createObjectURL(file);
+    img.src = lastObjectURL;
+    img.alt = fn;
+  } else {
+    img.removeAttribute('src');
+    img.alt = `图片不在选定文件夹: ${fn}`;
+  }
+
+  const baseEdits = review ? (review.edits || {}) : {};
+  state.edits = { ...baseEdits };
+  const fields = $('#fields');
+  fields.innerHTML = '';
+  FIELDS.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    if (f.readonly) row.classList.add('readonly');
+    const orig = r[f.key] ?? '';
+    const current = f.key in baseEdits ? baseEdits[f.key] : orig;
+    if (f.key in baseEdits) row.classList.add('edited');
+
+    let inputHtml;
+    if (f.dropdown && !f.readonly) {
+      const listId = `dl-${f.key}`;
+      const opts = (state.options[f.key] || []).map(o => `<option value="${escAttr(o)}">`).join('');
+      inputHtml = `<input list="${listId}" data-key="${f.key}" value="${escAttr(current)}">
+                   <datalist id="${listId}">${opts}</datalist>`;
+    } else {
+      inputHtml = `<input type="text" data-key="${f.key}" value="${escAttr(current)}" ${f.readonly?'readonly':''}>`;
+    }
+    row.innerHTML = `<label>${f.label}</label>${inputHtml}`;
+
+    const input = row.querySelector('input');
+    input.dataset.orig = String(orig);
+    input.addEventListener('input', () => {
+      if (input.value !== input.dataset.orig) {
+        row.classList.add('edited');
+        state.edits[f.key] = input.value;
+      } else {
+        row.classList.remove('edited');
+        delete state.edits[f.key];
+      }
+    });
+    fields.appendChild(row);
+  });
+  $('#note').value = review ? (review.note || '') : '';
+  const meta = document.createElement('div');
+  meta.className = 'field-meta';
+  meta.textContent = review
+    ? `上次核对: ${review.reviewer} · ${new Date(review.reviewed_at).toLocaleString()}`
+    : '尚未核对';
+  fields.appendChild(meta);
+}
+
+function escAttr(s) {
+  return String(s ?? '').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;');
+}
+
+function saveReview(status) {
+  if (state.index < 0) return;
+  const r = state.rows[state.index];
+  const review = {
+    reviewer: state.reviewer,
+    status,
+    note: $('#note').value,
+    edits: state.edits,
+    reviewed_at: new Date().toISOString(),
+  };
+  localStorage.setItem(reviewKey(r.annotation_id), JSON.stringify(review));
+  renderList();
+  const next = nextVisibleIndex(state.index);
+  if (next >= 0) selectIndex(next);
+  else selectIndex(state.index);
+}
+
+// scope: 'sample'(当前抽样) | 'reviewed'(仅已审) | 'full'(整个 CSV)
+function exportMergedCSV(scope) {
+  const extraCols = ['__review_status', '__review_reviewer', '__review_note', '__review_at'];
+  const header = [...state.header, ...extraCols.filter(c => !state.header.includes(c))];
+  const lines = [header.map(csvQuote).join(',')];
+
+  const sampleIdSet = new Set(state.rows.map(r => String(r.annotation_id)));
+  let rowsToExport;
+  if (scope === 'full') {
+    rowsToExport = state.fullRows;
+  } else if (scope === 'reviewed') {
+    rowsToExport = state.rows.filter(r => rowStatus(r));
+  } else {
+    rowsToExport = state.rows;
+  }
+
+  rowsToExport.forEach(r => {
+    const inSample = sampleIdSet.has(String(r.annotation_id));
+    const review = inSample ? loadReview(r.annotation_id) : null;
+    const merged = { ...r };
+    if (review && review.edits) Object.assign(merged, review.edits);
+    merged.__review_status = review ? review.status : '';
+    merged.__review_reviewer = review ? review.reviewer : '';
+    merged.__review_note = review ? review.note : '';
+    merged.__review_at = review ? review.reviewed_at : '';
+    lines.push(header.map(h => csvQuote(merged[h] ?? '')).join(','));
+  });
+
+  if (!rowsToExport.length) { alert('没有可导出的行'); return; }
+  const scopeName = scope === 'full' ? '全部' : (scope === 'reviewed' ? '仅已审' : '抽样');
+  downloadFile(`review-${scopeName}-${state.csvName.replace(/[:\\/]/g, '_')}`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+
+function bindAppEvents() {
+  $('#filter').addEventListener('change', (e) => {
+    state.filter = e.target.value;
+    renderList();
+    if (state.index < 0 || !passesFilter(state.rows[state.index])) {
+      const i = firstVisibleIndex();
+      if (i >= 0) selectIndex(i);
+    }
+  });
+  $('#prev-btn').addEventListener('click', () => { const i = prevVisibleIndex(state.index); if (i >= 0) selectIndex(i); });
+  $('#next-btn').addEventListener('click', () => { const i = nextVisibleIndex(state.index); if (i >= 0) selectIndex(i); });
+  document.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', () => saveReview(b.dataset.status)));
+  $('#d-img').addEventListener('click', () => {
+    const src = $('#d-img').src;
+    if (!src) return;
+    $('#lb-img').src = src;
+    $('#lightbox').classList.add('show');
+  });
+  $('#lightbox').addEventListener('click', () => $('#lightbox').classList.remove('show'));
+  document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMergedCSV(b.dataset.export)));
+  $('#export-state2').addEventListener('click', exportProgress);
+  document.addEventListener('keydown', (e) => {
+    const t = (e.target.tagName || '').toLowerCase();
+    if (t === 'input' || t === 'select' || t === 'textarea') return;
+    if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') { e.preventDefault(); const i = nextVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
+    else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') { e.preventDefault(); const i = prevVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
+    else if (e.key === '1') saveReview('pass');
+    else if (e.key === '2') saveReview('fail');
+    else if (e.key === '3') saveReview('doubt');
+  });
+}
+</script>
+</body>
+</html>
