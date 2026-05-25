@@ -546,17 +546,17 @@ function updateColumnDetection() {
   scores.forEach(({ col, matched }) => {
     const opt = document.createElement('option');
     opt.value = col;
-    opt.textContent = `${col}  (${matched}/${total} 匹配)`;
+    opt.textContent = `${col}  (匹配 ${matched}/${total} CSV 行)`;
     sel.appendChild(opt);
   });
   const best = scores[0];
   const stat = $('#col-status');
   if (best.matched > 0) {
     sel.value = best.col;
-    stat.textContent = `✓ 自动选中 "${best.col}" — ${best.matched}/${total} 匹配`;
+    stat.textContent = `✓ 自动选中 "${best.col}" — CSV ${total} 行,${best.matched} 行能在文件夹(${state.imageMap.size} 文件)里找到图`;
     stat.className = 'status ok';
   } else {
-    stat.textContent = `⚠ 没有列能匹配文件夹里的图片(${state.imageMap.size} 个文件)。检查是不是文件夹选错了。`;
+    stat.textContent = `⚠ CSV ${total} 行没有一行能匹配文件夹里的图(${state.imageMap.size} 文件)。检查是不是文件夹选错了。`;
     stat.className = 'status err';
   }
 }
