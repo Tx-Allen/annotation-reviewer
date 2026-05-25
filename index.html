@@ -133,7 +133,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
 .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; align-items: center; justify-content: center; z-index: 999; cursor: zoom-out; }
 .lightbox.show { display: flex; }
-.lightbox img { width: 100vw; height: 100vh; object-fit: contain; }
+.lightbox img { width: 100%; height: 100%; object-fit: contain; display: block; }
 </style>
 </head>
 <body>
@@ -639,23 +639,26 @@ function computeSample(rows, mode, n, unit, stratCol, stratN, stratUnit, seed) {
   return rows.map(idOf);
 }
 
-// AQL 推荐
+// AQL 推荐(数据问题行不算入抽样池)
 function suggestSample(rows, header) {
   const total = rows.length;
+  const issueCount = rows.filter(r => validateRow(r, {}).length > 0).length;
+  const cleanTotal = total - issueCount;
+
   let pct, reason;
-  if (total < 100) { pct = 100; reason = '数据量很小,建议全审先把标注员校准好'; }
-  else if (total < 500) { pct = 50; reason = '数据量中等,高抽样率验证质量'; }
-  else if (total < 2000) { pct = 20; reason = '常规生产抽检,稳定后可降至 10%'; }
-  else if (total < 10000) { pct = 10; reason = '常规生产抽检的常见值'; }
+  if (cleanTotal < 100) { pct = 100; reason = '干净数据量很小,建议全审先把标注员校准好'; }
+  else if (cleanTotal < 500) { pct = 50; reason = '数据量中等,高抽样率验证质量'; }
+  else if (cleanTotal < 2000) { pct = 20; reason = '常规生产抽检,稳定后可降至 10%'; }
+  else if (cleanTotal < 10000) { pct = 10; reason = '常规生产抽检的常见值'; }
   else { pct = 5; reason = '大数据量,标注员稳定后可降至 5%'; }
 
   const annotators = header.includes('annotator')
     ? new Set(rows.map(r => (r.annotator || '').trim()).filter(Boolean)).size
     : 0;
-  const sampleCount = Math.max(1, Math.ceil(total * pct / 100));
+  const sampleCount = Math.max(1, Math.ceil(cleanTotal * pct / 100));
   const useStrat = annotators > 1;
   const perAnnotator = useStrat ? Math.max(30, Math.ceil(sampleCount / annotators)) : 0;
-  return { pct, sampleCount, reason, total, annotators, useStrat, perAnnotator };
+  return { pct, sampleCount, cleanTotal, issueCount, reason, total, annotators, useStrat, perAnnotator };
 }
 
 const $ = sel => document.querySelector(sel);
@@ -733,7 +736,10 @@ function updateSamplingUI() {
   // AQL 推荐
   const s = suggestSample(pendingCSV.rows, pendingCSV.header);
   $('#sample-suggest').style.display = 'flex';
-  $('#suggest-text').innerHTML = `<b>推荐:</b>总 ${s.total} 条${s.annotators ? ` · ${s.annotators} 个标注员` : ''} → 抽 <b>${s.pct}%</b>(${s.sampleCount} 条)${s.useStrat ? ` · 按 annotator 分层每组 ≥${s.perAnnotator} 条` : ''} · ${s.reason}`;
+  const issuePart = s.issueCount ? `(其中 <b>${s.issueCount}</b> 条数据问题会 <b>全部</b> 进入审核)` : '';
+  const stratPart = s.useStrat ? ` · 按 annotator 分层每组 ≥${s.perAnnotator} 条` : '';
+  const finalTotal = s.sampleCount + s.issueCount;
+  $('#suggest-text').innerHTML = `<b>推荐:</b>总 ${s.total} 条${issuePart}${s.annotators ? ` · ${s.annotators} 个标注员` : ''} → 干净行抽 <b>${s.pct}%</b>(${s.sampleCount} 条)${stratPart} · 实际审 ${finalTotal} 条 · ${s.reason}`;
 }
 
 function updateColumnDetection() {
@@ -776,16 +782,27 @@ function updateColumnDetection() {
 }
 
 // 从启动页设置算出当前抽样 ids
+// 规则:数据有问题的行 100% 全审(不参与抽样),其余从干净行里按设置抽
 function currentSampleIds() {
   const mode = document.querySelector('input[name="sample"]:checked').value;
   if (mode === 'existing') return loadSampleIds(pendingCSV.name) || [];
-  const n = parseInt($('#sample-n').value, 10) || pendingCSV.rows.length;
+  if (mode === 'all') return pendingCSV.rows.map(r => String(r.annotation_id));
+
+  const issueIds = pendingCSV.rows
+    .filter(r => validateRow(r, {}).length > 0)
+    .map(r => String(r.annotation_id));
+  const issueSet = new Set(issueIds);
+  const cleanRows = pendingCSV.rows.filter(r => !issueSet.has(String(r.annotation_id)));
+
+  const n = parseInt($('#sample-n').value, 10) || cleanRows.length;
   const unit = $('#sample-n-unit').value;
   const stratCol = $('#sample-strat-col').value;
   const stratN = parseInt($('#sample-strat-n').value, 10) || 1;
   const stratUnit = $('#sample-strat-n-unit').value;
   const seed = $('#sample-seed').value.trim();
-  return computeSample(pendingCSV.rows, mode, n, unit, stratCol, stratN, stratUnit, seed);
+
+  const cleanSampleIds = computeSample(cleanRows, mode, n, unit, stratCol, stratN, stratUnit, seed);
+  return [...issueIds, ...cleanSampleIds];
 }
 
 startBtn.addEventListener('click', () => {
