@@ -36,6 +36,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .sample-opt em { color: #1a7d3b; font-style: normal; font-size: 12px; }
 .seed-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; padding-top: 4px; border-top: 1px dashed #ececf0; margin-top: 2px; }
 .seed-row input { width: 120px; }
+.sample-suggest { padding: 8px 10px; background: #e7f5ff; border: 1px solid #b8dcff; border-radius: 6px; font-size: 12px; color: #1e5aa8; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; line-height: 1.5; }
+.sample-suggest button { padding: 3px 12px; border: 1px solid #1e5aa8; background: #1e5aa8; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.sample-suggest button:hover { background: #144078; }
+.sample-suggest b { color: #0a3666; }
 
 /* Modal */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 998; }
@@ -164,6 +168,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
   </div>
   <div class="row" id="sample-row" style="display:none;">
     <label>④ 抽检方式(不用全部审,只抽一部分)</label>
+    <div class="sample-suggest" id="sample-suggest" style="display:none;">
+      💡 <span id="suggest-text"></span>
+      <button id="suggest-apply" type="button">一键应用</button>
+    </div>
     <div class="sample-options">
       <label class="sample-opt" id="sample-opt-existing" style="display:none;">
         <input type="radio" name="sample" value="existing" checked>
@@ -174,12 +182,20 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
       </label>
       <label class="sample-opt">
         <input type="radio" name="sample" value="random" checked> 随机抽
-        <input type="number" id="sample-n" min="1" value="20"> 条
+        <input type="number" id="sample-n" min="1" value="20">
+        <select id="sample-n-unit">
+          <option value="count">条</option>
+          <option value="pct">%</option>
+        </select>
       </label>
       <label class="sample-opt">
         <input type="radio" name="sample" value="strat"> 按
         <select id="sample-strat-col"></select>
-        分层,每组抽 <input type="number" id="sample-strat-n" min="1" value="5"> 条
+        分层,每组抽 <input type="number" id="sample-strat-n" min="1" value="5">
+        <select id="sample-strat-n-unit">
+          <option value="count">条</option>
+          <option value="pct">%</option>
+        </select>
       </label>
       <div class="seed-row">
         🎲 随机种子(可选,留空则每次抽不同;填了就可复现): <input type="text" id="sample-seed" placeholder="例如 audit-2026q2">
@@ -595,12 +611,17 @@ function shuffle(arr, rng) {
   }
   return a;
 }
-function computeSample(rows, mode, n, stratCol, stratN, seed) {
+function resolveCount(n, unit, total) {
+  if (unit === 'pct') return Math.max(1, Math.ceil(total * n / 100));
+  return n;
+}
+function computeSample(rows, mode, n, unit, stratCol, stratN, stratUnit, seed) {
   const rng = makeRng(seed);
   const idOf = r => String(r.annotation_id);
   if (mode === 'all') return rows.map(idOf);
   if (mode === 'random') {
-    return shuffle(rows, rng).slice(0, Math.min(n, rows.length)).map(idOf);
+    const cnt = resolveCount(n, unit, rows.length);
+    return shuffle(rows, rng).slice(0, Math.min(cnt, rows.length)).map(idOf);
   }
   if (mode === 'strat' && stratCol) {
     const groups = {};
@@ -610,11 +631,31 @@ function computeSample(rows, mode, n, stratCol, stratN, seed) {
     });
     const out = [];
     Object.values(groups).forEach(grp => {
-      shuffle(grp, rng).slice(0, Math.min(stratN, grp.length)).forEach(r => out.push(idOf(r)));
+      const cnt = resolveCount(stratN, stratUnit, grp.length);
+      shuffle(grp, rng).slice(0, Math.min(cnt, grp.length)).forEach(r => out.push(idOf(r)));
     });
     return out;
   }
   return rows.map(idOf);
+}
+
+// AQL 推荐
+function suggestSample(rows, header) {
+  const total = rows.length;
+  let pct, reason;
+  if (total < 100) { pct = 100; reason = '数据量很小,建议全审先把标注员校准好'; }
+  else if (total < 500) { pct = 50; reason = '数据量中等,高抽样率验证质量'; }
+  else if (total < 2000) { pct = 20; reason = '常规生产抽检,稳定后可降至 10%'; }
+  else if (total < 10000) { pct = 10; reason = '常规生产抽检的常见值'; }
+  else { pct = 5; reason = '大数据量,标注员稳定后可降至 5%'; }
+
+  const annotators = header.includes('annotator')
+    ? new Set(rows.map(r => (r.annotator || '').trim()).filter(Boolean)).size
+    : 0;
+  const sampleCount = Math.max(1, Math.ceil(total * pct / 100));
+  const useStrat = annotators > 1;
+  const perAnnotator = useStrat ? Math.max(30, Math.ceil(sampleCount / annotators)) : 0;
+  return { pct, sampleCount, reason, total, annotators, useStrat, perAnnotator };
 }
 
 const $ = sel => document.querySelector(sel);
@@ -662,7 +703,7 @@ function updateSamplingUI() {
   $('#sample-row').style.display = 'flex';
   $('#sample-total').textContent = pendingCSV.rows.length;
   const nInput = $('#sample-n');
-  if (parseInt(nInput.value, 10) > pendingCSV.rows.length) {
+  if ($('#sample-n-unit').value === 'count' && parseInt(nInput.value, 10) > pendingCSV.rows.length) {
     nInput.value = Math.min(20, pendingCSV.rows.length);
   }
   const sel = $('#sample-strat-col');
@@ -688,6 +729,11 @@ function updateSamplingUI() {
     optExist.style.display = 'none';
     document.querySelector('input[name="sample"][value="random"]').checked = true;
   }
+
+  // AQL 推荐
+  const s = suggestSample(pendingCSV.rows, pendingCSV.header);
+  $('#sample-suggest').style.display = 'flex';
+  $('#suggest-text').innerHTML = `<b>推荐:</b>总 ${s.total} 条${s.annotators ? ` · ${s.annotators} 个标注员` : ''} → 抽 <b>${s.pct}%</b>(${s.sampleCount} 条)${s.useStrat ? ` · 按 annotator 分层每组 ≥${s.perAnnotator} 条` : ''} · ${s.reason}`;
 }
 
 function updateColumnDetection() {
@@ -734,10 +780,12 @@ function currentSampleIds() {
   const mode = document.querySelector('input[name="sample"]:checked').value;
   if (mode === 'existing') return loadSampleIds(pendingCSV.name) || [];
   const n = parseInt($('#sample-n').value, 10) || pendingCSV.rows.length;
+  const unit = $('#sample-n-unit').value;
   const stratCol = $('#sample-strat-col').value;
   const stratN = parseInt($('#sample-strat-n').value, 10) || 1;
+  const stratUnit = $('#sample-strat-n-unit').value;
   const seed = $('#sample-seed').value.trim();
-  return computeSample(pendingCSV.rows, mode, n, stratCol, stratN, seed);
+  return computeSample(pendingCSV.rows, mode, n, unit, stratCol, stratN, stratUnit, seed);
 }
 
 startBtn.addEventListener('click', () => {
@@ -903,6 +951,21 @@ $('#pack-start-btn').addEventListener('click', () => {
 });
 
 // ========== 进度备份 ==========
+$('#suggest-apply').addEventListener('click', () => {
+  if (!pendingCSV) return;
+  const s = suggestSample(pendingCSV.rows, pendingCSV.header);
+  if (s.useStrat) {
+    document.querySelector('input[name="sample"][value="strat"]').checked = true;
+    $('#sample-strat-col').value = 'annotator';
+    $('#sample-strat-n').value = s.perAnnotator;
+    $('#sample-strat-n-unit').value = 'count';
+  } else {
+    document.querySelector('input[name="sample"][value="random"]').checked = true;
+    $('#sample-n').value = s.pct;
+    $('#sample-n-unit').value = 'pct';
+  }
+});
+
 $('#reload-setup').addEventListener('click', () => location.reload());
 
 function refreshStateInfo() {
