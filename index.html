@@ -783,15 +783,22 @@ function updateColumnDetection() {
 
 // 从启动页设置算出当前抽样 ids
 // 规则:数据有问题的行 100% 全审(不参与抽样),其余从干净行里按设置抽
+// 所有模式(包括 existing / all)都强制合并当前 CSV 里检测到的所有 issue 行
 function currentSampleIds() {
   const mode = document.querySelector('input[name="sample"]:checked').value;
-  if (mode === 'existing') return loadSampleIds(pendingCSV.name) || [];
-  if (mode === 'all') return pendingCSV.rows.map(r => String(r.annotation_id));
-
   const issueIds = pendingCSV.rows
     .filter(r => validateRow(r, {}).length > 0)
     .map(r => String(r.annotation_id));
   const issueSet = new Set(issueIds);
+
+  if (mode === 'all') return pendingCSV.rows.map(r => String(r.annotation_id));
+
+  if (mode === 'existing') {
+    const saved = loadSampleIds(pendingCSV.name) || [];
+    return [...new Set([...issueIds, ...saved])];
+  }
+
+  // random / strat:issue 全留,从干净行采
   const cleanRows = pendingCSV.rows.filter(r => !issueSet.has(String(r.annotation_id)));
 
   const n = parseInt($('#sample-n').value, 10) || cleanRows.length;
