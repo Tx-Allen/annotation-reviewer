@@ -105,6 +105,25 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .field-row.readonly input { background: #f5f5f7; color: #888; }
 .field-meta { color: #999; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #eee; }
 
+/* Schema-driven field render */
+.field-section { padding: 10px 12px; border: 1px solid #ececf0; border-radius: 6px; margin-bottom: 10px; background: #fff; }
+.field-section.edited { border-left: 3px solid #d59300; background: #fffdf5; }
+.field-label { font-size: 13px; color: #333; font-weight: 600; margin-bottom: 8px; }
+.field-label .req-mark { color: #d63939; margin-left: 2px; }
+.field-label .multi-hint { color: #888; font-weight: normal; font-size: 11px; margin-left: 4px; }
+.choice-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice-pill { padding: 4px 11px; border: 1px solid #d0d0d6; background: #fff; border-radius: 14px; cursor: pointer; font-size: 12px; transition: all .12s; line-height: 1.3; }
+.choice-pill:hover { border-color: #2868f3; color: #2868f3; }
+.choice-pill.active { background: #2868f3; color: #fff; border-color: #2868f3; }
+.choice-pill.multi.active { background: #1a7d3b; border-color: #1a7d3b; }
+.issues-banner { padding: 10px 12px; background: #fff0f0; border: 1px solid #f8c0c0; border-radius: 6px; margin-bottom: 12px; color: #b32a30; font-size: 12px; line-height: 1.5; }
+.issues-banner b { color: #b32a30; }
+.issues-banner ul { margin: 4px 0 0 16px; padding: 0; }
+.issues-banner li { margin: 2px 0; }
+.meta-fields { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; padding: 8px 0 0; border-top: 1px dashed #ddd; font-size: 11px; color: #999; }
+.meta-fields b { color: #666; margin-right: 4px; }
+.issue-mark { color: #d63939; font-weight: 600; }
+
 .detail-foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #ececf0; }
 #note { flex: 1; padding: 6px 10px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; }
 
@@ -244,6 +263,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
           <option value="pass">通过</option>
           <option value="fail">不通过</option>
           <option value="doubt">存疑</option>
+          <option value="issues">⚠ 数据问题</option>
         </select>
         <span id="progress" class="progress">0 / 0</span>
       </div>
@@ -379,19 +399,167 @@ function makeRng(seed) {
 }
 
 // ========== 应用状态 ==========
-const FIELDS = [
-  { key: 'colour', label: '颜色', dropdown: true },
-  { key: 'defects', label: '瑕疵', dropdown: true },
-  { key: 'object_type', label: '器型', dropdown: true },
-  { key: 'subtype_carving', label: '雕刻子类', dropdown: true },
-  { key: 'subtype_jewelry', label: '首饰子类', dropdown: true },
-  { key: 'subtype_ritual', label: '礼器子类', dropdown: true },
-  { key: 'texture', label: '纹理', dropdown: true },
-  { key: 'transparency', label: '透明度', dropdown: true },
-  { key: 'annotator', label: '原标注员', dropdown: true },
-  { key: 'lead_time', label: '用时(秒)', readonly: true },
-  { key: 'created_at', label: '创建时间', readonly: true },
+// ========== LS XML 字段 schema(顺序、值、hint 全部源自 LS 配置) ==========
+const FIELD_SCHEMA = [
+  {
+    key: 'object_type', label: '1. 主类别 object_type', type: 'single', required: true,
+    options: [
+      { value: '软玉礼器', hint: '古代礼制、祭祀、身份象征类玉器，例如玉璧、玉琮、玉圭、古代玉佩' },
+      { value: '翡翠首饰', hint: '可以佩戴的翡翠饰品，例如手镯、吊坠、戒面、珠链、耳饰' },
+      { value: '雕刻玉器', hint: '以雕刻题材为主的摆件、把件或陈设玉器，例如人物、瑞兽、花鸟、山子' },
+    ],
+  },
+  {
+    key: 'subtype_ritual', label: '2A. 子类别 subtype:软玉礼器', type: 'single', required: true,
+    visibleWhen: { field: 'object_type', value: '软玉礼器' },
+    options: [
+      { value: '玉璧（Bi）', hint: '圆形扁平玉器，中间有圆孔，像玉盘；通常为古代礼器' },
+      { value: '玉琮（Cong）', hint: '外方内圆，柱状或筒状，中间上下贯通孔；通常为古代礼器' },
+      { value: '玉佩', hint: '古代可佩戴的小型玉件，常见片状、弧形、牌形或带孔佩饰' },
+      { value: '玉圭', hint: '长条扁平玉板，一端可能尖或呈规整圭首形；古代礼器' },
+      { value: '其他礼器', hint: '属于古代礼器，但不是玉璧、玉琮、玉佩、玉圭，例如玉璋、玉戈、玉钺、玉璜等' },
+    ],
+  },
+  {
+    key: 'subtype_jewelry', label: '2B. 子类别 subtype:翡翠首饰', type: 'single', required: true,
+    visibleWhen: { field: 'object_type', value: '翡翠首饰' },
+    options: [
+      { value: '手镯（Bangle）', hint: '圆环形腕饰，中间大孔，有一定厚度，用来戴在手腕上' },
+      { value: '吊坠（Pendant）', hint: '可挂绳或项链佩戴的坠饰，例如佛公、观音、平安扣、叶子、葫芦、如意' },
+      { value: '戒面（Cabochon）', hint: '椭圆、圆形、水滴形、马眼形等弧面打磨裸石，通常用于镶嵌' },
+      { value: '珠链（Bead necklace）', hint: '多颗翡翠珠串成的项链、手串或珠串' },
+      { value: '耳饰', hint: '戴在耳朵上的翡翠饰品，例如耳钉、耳坠、耳环，常有金属镶嵌结构' },
+      { value: '其他首饰', hint: '是翡翠首饰，但不是手镯、吊坠、戒面、珠链、耳饰，例如戒指、胸针、发簪、手链' },
+    ],
+  },
+  {
+    key: 'subtype_carving', label: '2C. 子类别 subtype:雕刻玉器', type: 'single', required: true,
+    visibleWhen: { field: 'object_type', value: '雕刻玉器' },
+    options: [
+      { value: '人物', hint: '雕刻主体是人、神佛或人物造像，例如观音、佛像、罗汉、仕女、童子、老人' },
+      { value: '瑞兽', hint: '雕刻主体是动物或神兽，例如龙、凤、貔貅、麒麟、狮子、虎、兽面、辟邪' },
+      { value: '花鸟', hint: '雕刻主体是花卉、鸟类、植物或花鸟组合，例如莲花、牡丹、梅兰竹菊、喜鹊、鹤' },
+      { value: '山子', hint: '整体像山水立体摆件，有山石、崖壁、亭台、树木、流水或山水场景' },
+      { value: '其他雕刻', hint: '是玉雕，但不属于人物、瑞兽、花鸟、山子，例如器皿、印章、把件、抽象纹饰、文房器' },
+    ],
+  },
+  {
+    key: 'colour', label: '3. 颜色 colour', type: 'single', required: true,
+    options: [
+      { value: '白色系', hint: '白色、乳白、灰白、青白，以浅白色为主' },
+      { value: '绿色系', hint: '浅绿、阳绿、翠绿、苹果绿等，以绿色为主' },
+      { value: '墨绿', hint: '深绿色、黑绿色，颜色很深但仍能看出绿色调' },
+      { value: '黄褐', hint: '黄色、棕色、土黄、褐色，常见于沁色、老玉或黄褐色玉料' },
+      { value: '紫色', hint: '紫罗兰、淡紫、粉紫，主体有明显紫色调' },
+      { value: '黑色', hint: '黑玉、墨色、深黑色为主，绿色调不明显' },
+      { value: '青灰', hint: '青色、灰青、灰绿、青灰白，颜色偏冷灰或偏青' },
+      { value: '多色', hint: '同一件玉器有两种或以上明显主色，例如绿白、黄绿、紫绿、黑白' },
+    ],
+  },
+  {
+    key: 'transparency', label: '4. 透明度 transparency', type: 'single', required: true,
+    options: [
+      { value: 'Transparent（高透，冰种）', hint: '明显透光，清亮，有冰感，内部结构相对可见' },
+      { value: 'Semi-translucent（半透）', hint: '有一定透光感，但不完全清透，内部结构较朦胧' },
+      { value: 'Opaque（不透）', hint: '基本不透光，整体厚重，石性明显或看不进内部' },
+    ],
+  },
+  {
+    key: 'texture', label: '5. 质地 texture', type: 'single', required: true,
+    options: [
+      { value: 'Fine（细腻）', hint: '颗粒感弱，结构均匀，表面观感细密、温润' },
+      { value: 'Medium（中等）', hint: '有一定颗粒或结构感，但不算明显粗糙' },
+      { value: 'Coarse（粗糙）', hint: '颗粒感明显，结构松散，表面或内部质感较粗' },
+    ],
+  },
+  {
+    key: 'defects', label: '6. 瑕疵 defects', type: 'multiple', required: true,
+    exclusiveValue: '无明显瑕疵',
+    options: [
+      { value: '裂', hint: '明显裂纹、断裂线、贯穿裂、表面裂或边缘裂' },
+      { value: '棉', hint: '白色絮状、团状、云雾状内部结构，像棉絮' },
+      { value: '黑点', hint: '黑色矿点、杂质点、脏点、小黑斑' },
+      { value: '风化', hint: '表面老化、沁蚀、失光、皮壳变化，多见于古玉' },
+      { value: '磨损', hint: '边缘磨耗、表面划痕、磕碰、缺口、使用痕迹' },
+      { value: '无明显瑕疵', hint: '图片中看不到明显裂、棉、黑点、风化或磨损(选了此项不能再选其他)' },
+    ],
+  },
 ];
+
+const METAFIELDS = [
+  { key: 'annotation_id', label: 'ID' },
+  { key: 'annotator', label: '标注员' },
+  { key: 'lead_time', label: '用时(秒)' },
+  { key: 'created_at', label: '创建' },
+];
+
+// 短标签(用于错误信息,去掉前缀编号)
+function shortLabel(label) { return label.replace(/^\d+[A-Z]?\.\s*/, ''); }
+
+function parseMulti(raw) {
+  if (raw === undefined || raw === null) return [];
+  const s = String(raw).trim();
+  if (!s) return [];
+  if (s.startsWith('{') || s.startsWith('[')) {
+    try {
+      const obj = JSON.parse(s);
+      if (obj && Array.isArray(obj.choices)) return obj.choices;
+      if (Array.isArray(obj)) return obj;
+    } catch {}
+  }
+  return [s];
+}
+
+function serializeMulti(arr) {
+  if (!arr || !arr.length) return '';
+  if (arr.length === 1) return arr[0];
+  return JSON.stringify({ choices: arr });
+}
+
+function validateRow(r, edits) {
+  edits = edits || {};
+  const issues = [];
+  const eff = (k) => k in edits ? edits[k] : (r[k] ?? '');
+  FIELD_SCHEMA.forEach(f => {
+    if (f.visibleWhen) {
+      const dep = eff(f.visibleWhen.field);
+      if (dep !== f.visibleWhen.value) {
+        const cur = eff(f.key);
+        if (cur && String(cur).trim()) {
+          issues.push(`${shortLabel(f.label)} 应为空(object_type=${dep || '空'}),但有值「${cur}」`);
+        }
+        return;
+      }
+    }
+    const cur = eff(f.key);
+    if (f.required && (!cur || !String(cur).trim())) {
+      issues.push(`${shortLabel(f.label)} 缺值`);
+      return;
+    }
+    if (!cur || !String(cur).trim()) return;
+    const valid = f.options.map(o => o.value);
+    if (f.type === 'single') {
+      if (!valid.includes(String(cur))) {
+        issues.push(`${shortLabel(f.label)} 值「${cur}」不在合法选项里`);
+      }
+    } else if (f.type === 'multiple') {
+      const selected = parseMulti(cur);
+      selected.forEach(v => {
+        if (!valid.includes(v)) issues.push(`${shortLabel(f.label)} 含非法值「${v}」`);
+      });
+      if (f.exclusiveValue && selected.length > 1 && selected.includes(f.exclusiveValue)) {
+        issues.push(`${shortLabel(f.label)} 选了「${f.exclusiveValue}」就不能再选其他`);
+      }
+    }
+  });
+  return issues;
+}
+
+function hasIssues(r) {
+  const review = loadReview(r.annotation_id);
+  const edits = review ? review.edits || {} : {};
+  return validateRow(r, edits).length > 0;
+}
 
 const state = {
   csvName: '',
@@ -811,6 +979,13 @@ function initApp() {
     : `全部 ${state.totalRows}`;
   // pack 模式下"全部 CSV"按钮没意义,隐藏
   $('#export-full-btn').style.display = state.packMode ? 'none' : 'inline';
+  // 数据问题:有的话默认进 issues 过滤器
+  const issueCount = state.rows.filter(hasIssues).length;
+  if (issueCount > 0) {
+    state.filter = 'issues';
+    $('#filter').value = 'issues';
+    $('#scope-info').textContent += ` · ⚠ ${issueCount} 条有问题`;
+  }
   bindAppEvents();
   renderList();
   const i = firstVisibleIndex();
@@ -830,6 +1005,7 @@ function passesFilter(r) {
   const s = statusKey(rowStatus(r));
   if (state.filter === 'all') return true;
   if (state.filter === 'todo') return s === 'todo';
+  if (state.filter === 'issues') return hasIssues(r);
   return s === state.filter;
 }
 
@@ -859,8 +1035,9 @@ function renderList() {
     if (idx === state.index) li.classList.add('active');
     const s = statusKey(rowStatus(r));
     const fn = extractFilename(r[state.imageColumn]);
+    const mark = hasIssues(r) ? ' <span class="issue-mark" title="数据问题">⚠</span>' : '';
     li.innerHTML = `<span class="st ${s}">${statusSym(s)}</span>
-      <span class="id">#${r.annotation_id}</span>
+      <span class="id">#${r.annotation_id}${mark}</span>
       <span class="fn" title="${fn}">${fn}</span>`;
     li.addEventListener('click', () => selectIndex(idx));
     ul.appendChild(li);
@@ -897,49 +1074,102 @@ function selectIndex(idx) {
     img.alt = `图片不在选定文件夹: ${fn}`;
   }
 
-  const baseEdits = review ? (review.edits || {}) : {};
-  state.edits = { ...baseEdits };
-  const fields = $('#fields');
-  fields.innerHTML = '';
-  FIELDS.forEach(f => {
-    const row = document.createElement('div');
-    row.className = 'field-row';
-    if (f.readonly) row.classList.add('readonly');
-    const orig = r[f.key] ?? '';
-    const current = f.key in baseEdits ? baseEdits[f.key] : orig;
-    if (f.key in baseEdits) row.classList.add('edited');
-
-    let inputHtml;
-    if (f.dropdown && !f.readonly) {
-      const listId = `dl-${f.key}`;
-      const opts = (state.options[f.key] || []).map(o => `<option value="${escAttr(o)}">`).join('');
-      inputHtml = `<input list="${listId}" data-key="${f.key}" value="${escAttr(current)}">
-                   <datalist id="${listId}">${opts}</datalist>`;
-    } else {
-      inputHtml = `<input type="text" data-key="${f.key}" value="${escAttr(current)}" ${f.readonly?'readonly':''}>`;
-    }
-    row.innerHTML = `<label>${f.label}</label>${inputHtml}`;
-
-    const input = row.querySelector('input');
-    input.dataset.orig = String(orig);
-    input.addEventListener('input', () => {
-      if (input.value !== input.dataset.orig) {
-        row.classList.add('edited');
-        state.edits[f.key] = input.value;
-      } else {
-        row.classList.remove('edited');
-        delete state.edits[f.key];
-      }
-    });
-    fields.appendChild(row);
-  });
+  state.edits = review ? { ...(review.edits || {}) } : {};
   $('#note').value = review ? (review.note || '') : '';
-  const meta = document.createElement('div');
-  meta.className = 'field-meta';
-  meta.textContent = review
+  renderFields(r);
+}
+
+function renderFields(r) {
+  const fieldsEl = $('#fields');
+  fieldsEl.innerHTML = '';
+  const effective = (k) => k in state.edits ? state.edits[k] : (r[k] ?? '');
+
+  // 数据问题横幅
+  const issues = validateRow(r, state.edits);
+  if (issues.length) {
+    const banner = document.createElement('div');
+    banner.className = 'issues-banner';
+    banner.innerHTML = '⚠ <b>数据问题:</b><ul>' + issues.map(i => `<li>${escAttr(i)}</li>`).join('') + '</ul>';
+    fieldsEl.appendChild(banner);
+  }
+
+  FIELD_SCHEMA.forEach(f => {
+    if (f.visibleWhen) {
+      const dep = effective(f.visibleWhen.field);
+      if (dep !== f.visibleWhen.value) return;
+    }
+
+    const sec = document.createElement('div');
+    sec.className = 'field-section';
+
+    const cur = effective(f.key);
+    const orig = r[f.key] ?? '';
+    const selected = f.type === 'multiple' ? parseMulti(cur) : (cur ? [String(cur)] : []);
+    const origSel = f.type === 'multiple' ? parseMulti(orig) : (orig ? [String(orig)] : []);
+    if (JSON.stringify(selected.slice().sort()) !== JSON.stringify(origSel.slice().sort())) {
+      sec.classList.add('edited');
+    }
+
+    const lbl = document.createElement('div');
+    lbl.className = 'field-label';
+    lbl.innerHTML = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${f.type === 'multiple' ? ' <span class="multi-hint">(可多选,「无明显瑕疵」与其他互斥)</span>' : ''}`;
+    sec.appendChild(lbl);
+
+    const group = document.createElement('div');
+    group.className = 'choice-group';
+    f.options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-pill' + (f.type === 'multiple' ? ' multi' : '');
+      if (selected.includes(opt.value)) btn.classList.add('active');
+      btn.title = opt.hint;
+      btn.textContent = opt.value;
+      btn.addEventListener('click', () => {
+        let newSel;
+        if (f.type === 'single') {
+          newSel = [opt.value];
+        } else {
+          const isExc = f.exclusiveValue === opt.value;
+          const hasExc = selected.includes(f.exclusiveValue);
+          if (selected.includes(opt.value)) {
+            newSel = selected.filter(v => v !== opt.value);
+          } else if (isExc) {
+            newSel = [opt.value];
+          } else if (hasExc) {
+            newSel = selected.filter(v => v !== f.exclusiveValue).concat(opt.value);
+          } else {
+            newSel = selected.concat(opt.value);
+          }
+        }
+        const newValue = f.type === 'multiple' ? serializeMulti(newSel) : (newSel[0] || '');
+        const origValue = f.type === 'multiple' ? serializeMulti(origSel) : (origSel[0] || '');
+        if (newValue !== origValue) state.edits[f.key] = newValue;
+        else delete state.edits[f.key];
+        renderFields(r);
+      });
+      group.appendChild(btn);
+    });
+    sec.appendChild(group);
+    fieldsEl.appendChild(sec);
+  });
+
+  // 元数据(只读)
+  const metaItems = METAFIELDS.filter(f => r[f.key] !== undefined && r[f.key] !== '');
+  if (metaItems.length) {
+    const meta = document.createElement('div');
+    meta.className = 'meta-fields';
+    meta.innerHTML = metaItems.map(f => `<span><b>${f.label}:</b> ${escAttr(r[f.key])}</span>`).join('');
+    fieldsEl.appendChild(meta);
+  }
+
+  // 上次核对信息
+  const review = loadReview(r.annotation_id);
+  const revmeta = document.createElement('div');
+  revmeta.className = 'field-meta';
+  revmeta.textContent = review
     ? `上次核对: ${review.reviewer} · ${new Date(review.reviewed_at).toLocaleString()}`
     : '尚未核对';
-  fields.appendChild(meta);
+  fieldsEl.appendChild(revmeta);
 }
 
 function escAttr(s) {
