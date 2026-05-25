@@ -762,7 +762,6 @@ startBtn.addEventListener('click', () => {
 
   state.reviewer = reviewerInput.value.trim() || 'anonymous';
   state.imageColumn = $('#col-input').value || 'image';
-  state.options = collectOptions(state.rows);
   state.packMode = false;
   initApp();
 });
@@ -898,7 +897,6 @@ $('#pack-start-btn').addEventListener('click', () => {
   state.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
   state.imageColumn = pendingPack.image_column || 'image';
   state.reviewer = $('#pack-reviewer-input').value.trim() || pendingPack.reviewer || 'anonymous';
-  state.options = collectOptions(state.rows);
   state.packMode = true;
   $('#pack-setup').style.display = 'none';
   initApp();
@@ -951,18 +949,6 @@ async function importProgress(e) {
 }
 
 // ========== 主应用 ==========
-function collectOptions(rows) {
-  const opts = {};
-  FIELDS.filter(f => f.dropdown).forEach(f => {
-    const set = new Set();
-    rows.forEach(r => {
-      const v = (r[f.key] || '').trim();
-      if (v) set.add(v);
-    });
-    opts[f.key] = Array.from(set).sort();
-  });
-  return opts;
-}
 
 function reviewKey(annoId) { return `review:${state.csvName}:${annoId}`; }
 function loadReview(annoId) {
