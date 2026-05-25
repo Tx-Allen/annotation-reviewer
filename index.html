@@ -112,9 +112,17 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 /* Schema-driven field render */
 .field-section { padding: 10px 12px; border: 1px solid #ececf0; border-radius: 6px; margin-bottom: 10px; background: #fff; }
 .field-section.edited { border-left: 3px solid #d59300; background: #fffdf5; }
-.field-label { font-size: 13px; color: #333; font-weight: 600; margin-bottom: 8px; }
+.field-label { font-size: 13px; color: #333; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .field-label .req-mark { color: #d63939; margin-left: 2px; }
 .field-label .multi-hint { color: #888; font-weight: normal; font-size: 11px; margin-left: 4px; }
+.field-label .label-text { flex: 1; }
+.quick-actions { display: flex; gap: 6px; }
+.quick-actions button { width: 30px; height: 30px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; transition: transform .12s, box-shadow .12s; }
+.quick-actions button:hover { transform: scale(1.1); box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+.quick-actions .qa-pass { background: #1a9d4b; }
+.quick-actions .qa-fail { background: #d63939; }
+.quick-actions .qa-todo { background: #d59300; }
+.quick-actions button.current { border-color: #222; }
 .choice-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .choice-pill { padding: 4px 11px; border: 1px solid #d0d0d6; background: #fff; border-radius: 14px; cursor: pointer; font-size: 12px; transition: all .12s; line-height: 1.3; }
 .choice-pill:hover { border-color: #2868f3; color: #2868f3; }
@@ -1185,7 +1193,24 @@ function renderFields(r) {
 
     const lbl = document.createElement('div');
     lbl.className = 'field-label';
-    lbl.innerHTML = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${f.type === 'multiple' ? ' <span class="multi-hint">(可多选,「无明显瑕疵」与其他互斥)</span>' : ''}`;
+    const labelInner = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${f.type === 'multiple' ? ' <span class="multi-hint">(可多选,「无明显瑕疵」与其他互斥)</span>' : ''}`;
+    lbl.innerHTML = `<span class="label-text">${labelInner}</span>`;
+    // 在主类别上放快捷核对按钮
+    if (f.key === 'object_type') {
+      const review = loadReview(r.annotation_id);
+      const curStatus = review ? review.status : null;
+      const actions = document.createElement('div');
+      actions.className = 'quick-actions';
+      actions.innerHTML = `
+        <button type="button" class="qa-pass${curStatus === 'pass' ? ' current' : ''}" title="通过(键盘 1)">✓</button>
+        <button type="button" class="qa-fail${curStatus === 'fail' ? ' current' : ''}" title="不通过(键盘 2)">✗</button>
+        <button type="button" class="qa-todo${!curStatus ? ' current' : ''}" title="未审 / 清除标记">!</button>
+      `;
+      actions.querySelector('.qa-pass').addEventListener('click', (e) => { e.stopPropagation(); saveReview('pass'); });
+      actions.querySelector('.qa-fail').addEventListener('click', (e) => { e.stopPropagation(); saveReview('fail'); });
+      actions.querySelector('.qa-todo').addEventListener('click', (e) => { e.stopPropagation(); unmarkReview(); });
+      lbl.appendChild(actions);
+    }
     sec.appendChild(lbl);
 
     const group = document.createElement('div');
@@ -1260,6 +1285,18 @@ function saveReview(status) {
     reviewed_at: new Date().toISOString(),
   };
   localStorage.setItem(reviewKey(r.annotation_id), JSON.stringify(review));
+  renderList();
+  const next = nextVisibleIndex(state.index);
+  if (next >= 0) selectIndex(next);
+  else selectIndex(state.index);
+}
+
+// 清除核对标记(未审)
+function unmarkReview() {
+  if (state.index < 0) return;
+  const r = state.rows[state.index];
+  localStorage.removeItem(reviewKey(r.annotation_id));
+  state.edits = {};
   renderList();
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
