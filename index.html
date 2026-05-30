@@ -99,6 +99,15 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .btn-pass { border-color: #1a9d4b; color: #1a9d4b; }
 .btn-fail { border-color: #d63939; color: #d63939; }
 .btn-doubt { border-color: #d59300; color: #d59300; }
+.btn-reannot { border-color: #2868f3; color: #fff; background: #2868f3; }
+.btn-reannot:hover { background: #1d56d9; }
+
+.mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 2px 0; }
+.seg { display: inline-flex; border: 1px solid #d0d0d6; border-radius: 6px; overflow: hidden; }
+.seg-btn { padding: 4px 12px; border: none; background: #fff; cursor: pointer; font-size: 13px; color: #444; }
+.seg-btn + .seg-btn { border-left: 1px solid #d0d0d6; }
+.seg-btn.active { background: #2868f3; color: #fff; }
+.mode-bar label { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 4px; }
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
 .img-wrap { background: #fff; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
@@ -307,6 +316,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
           <option value="fail">不通过</option>
           <option value="doubt">存疑</option>
           <option value="issues">⚠ 数据问题</option>
+          <option value="redone">已重标</option>
+          <option value="noredo">未重标</option>
         </select>
         <span id="progress" class="progress">0 / 0</span>
       </div>
@@ -332,6 +343,17 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button id="prev-btn" class="btn">← 上一条 (J)</button>
         <button id="next-btn" class="btn">下一条 (K) →</button>
       </div>
+      <div class="mode-bar">
+        <div class="seg" id="mode-seg">
+          <button type="button" class="seg-btn active" data-mode="review">核对</button>
+          <button type="button" class="seg-btn" data-mode="reannot">重新标注</button>
+        </div>
+        <div class="seg" id="submode-seg" style="display:none;">
+          <button type="button" class="seg-btn active" data-submode="correct">纠错(预填)</button>
+          <button type="button" class="seg-btn" data-submode="blind">盲标(清空)</button>
+        </div>
+        <label id="show-orig-wrap" style="display:none;"><input type="checkbox" id="show-orig"> 显示原标注</label>
+      </div>
       <div class="detail-body">
         <div class="img-wrap">
           <img id="d-img" alt="">
@@ -344,6 +366,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn btn-pass" data-status="pass">通过 (1)</button>
         <button class="btn btn-fail" data-status="fail">不通过 (2)</button>
         <button class="btn btn-doubt" data-status="doubt">存疑 (3)</button>
+        <button class="btn btn-reannot" id="save-reannot" style="display:none;">保存重标 (Enter)</button>
+        <button class="btn" id="skip-reannot" style="display:none;">跳过</button>
       </div>
     </div>
   </main>
@@ -1270,6 +1294,11 @@ function loadReview(annoId) {
   const raw = localStorage.getItem(reviewKey(annoId));
   return raw ? JSON.parse(raw) : null;
 }
+function reannotKey(annoId) { return `reannot:${state.csvName}:${annoId}`; }
+function loadReannot(annoId) {
+  const raw = localStorage.getItem(reannotKey(annoId));
+  return raw ? JSON.parse(raw) : null;
+}
 
 function undoAutoClean() {
   Object.entries(state.autofix).forEach(([id, fields]) => {
@@ -1308,6 +1337,7 @@ function initApp() {
   } else {
     fixBar.style.display = 'none';
   }
+  applyModeUI();
   bindAppEvents();
   renderList();
   const i = firstVisibleIndex();
@@ -1328,6 +1358,8 @@ function passesFilter(r) {
   if (state.filter === 'all') return true;
   if (state.filter === 'todo') return s === 'todo';
   if (state.filter === 'issues') return hasIssues(r);
+  if (state.filter === 'redone') return !!loadReannot(r.annotation_id);
+  if (state.filter === 'noredo') return !loadReannot(r.annotation_id);
   return s === state.filter;
 }
 
@@ -1358,8 +1390,9 @@ function renderList() {
     const s = statusKey(rowStatus(r));
     const fn = extractFilename(r[state.imageColumn]);
     const mark = hasIssues(r) ? ' <span class="issue-mark" title="数据问题">⚠</span>' : '';
+    const reMark = loadReannot(r.annotation_id) ? ' <span title="已重标" style="color:#2868f3;">✎</span>' : '';
     li.innerHTML = `<span class="st ${s}">${statusSym(s)}</span>
-      <span class="id">#${r.annotation_id}${mark}</span>
+      <span class="id">#${r.annotation_id}${mark}${reMark}</span>
       <span class="fn" title="${fn}">${fn}</span>`;
     li.addEventListener('click', () => selectIndex(idx));
     ul.appendChild(li);
@@ -1404,18 +1437,45 @@ function selectIndex(idx) {
     img.alt = `图片不在选定文件夹: ${fn}`;
   }
 
-  state.edits = review ? { ...(review.edits || {}) } : {};
-  $('#note').value = review ? (review.note || '') : '';
+  if (state.mode === 'reannot') {
+    const ra = loadReannot(r.annotation_id);
+    state.edits = ra ? { ...(ra.values || {}) } : {};
+    $('#note').value = ra ? (ra.note || '') : '';
+  } else {
+    state.edits = review ? { ...(review.edits || {}) } : {};
+    $('#note').value = review ? (review.note || '') : '';
+  }
   renderFields(r);
 }
 
 function renderFields(r) {
   const fieldsEl = $('#fields');
   fieldsEl.innerHTML = '';
-  const effective = (k) => k in state.edits ? state.edits[k] : (r[k] ?? '');
+  const blind = state.mode === 'reannot' && state.subMode === 'blind';
+  const baseVal = (k) => blind ? '' : (r[k] ?? '');
+  const effective = (k) => k in state.edits ? state.edits[k] : baseVal(k);
 
-  // 数据问题横幅
-  const issues = validateRow(r, state.edits);
+  // 快捷核对(核对模式;挪到面板顶部,不再绑定具体字段名)
+  if (state.mode === 'review') {
+    const rv = loadReview(r.annotation_id);
+    const cur = rv ? rv.status : null;
+    const qa = document.createElement('div');
+    qa.className = 'field-label';
+    qa.style.marginBottom = '8px';
+    qa.innerHTML = `<span class="label-text" style="color:#888;font-weight:normal;">快捷核对</span>
+      <div class="quick-actions">
+        <button type="button" class="qa-pass${cur === 'pass' ? ' current' : ''}" title="通过(1)">✓</button>
+        <button type="button" class="qa-fail${cur === 'fail' ? ' current' : ''}" title="不通过(2)">✗</button>
+        <button type="button" class="qa-todo${!cur ? ' current' : ''}" title="清除标记">!</button>
+      </div>`;
+    qa.querySelector('.qa-pass').addEventListener('click', () => saveReview('pass'));
+    qa.querySelector('.qa-fail').addEventListener('click', () => saveReview('fail'));
+    qa.querySelector('.qa-todo').addEventListener('click', () => unmarkReview());
+    fieldsEl.appendChild(qa);
+  }
+
+  // 数据问题横幅(盲标模式不基于原值校验,跳过)
+  const issues = blind ? [] : validateRow(r, state.edits);
   if (issues.length) {
     const banner = document.createElement('div');
     banner.className = 'issues-banner';
@@ -1433,7 +1493,7 @@ function renderFields(r) {
     sec.className = 'field-section';
 
     const cur = effective(f.key);
-    const orig = r[f.key] ?? '';
+    const orig = baseVal(f.key);
     const selected = f.type === 'multiple' ? parseMulti(cur) : (cur ? [String(cur)] : []);
     const origSel = f.type === 'multiple' ? parseMulti(orig) : (orig ? [String(orig)] : []);
     if (JSON.stringify(selected.slice().sort()) !== JSON.stringify(origSel.slice().sort())) {
@@ -1442,24 +1502,10 @@ function renderFields(r) {
 
     const lbl = document.createElement('div');
     lbl.className = 'field-label';
-    const labelInner = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${f.type === 'multiple' ? ' <span class="multi-hint">(可多选,「无明显瑕疵」与其他互斥)</span>' : ''}`;
+    const multiHint = f.type === 'multiple' ? ` <span class="multi-hint">(可多选${f.exclusiveValue ? `,「${escAttr(f.exclusiveValue)}」与其他互斥` : ''})</span>` : '';
+    const labelInner = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${multiHint}`;
     lbl.innerHTML = `<span class="label-text">${labelInner}</span>`;
-    // 在主类别上放快捷核对按钮
-    if (f.key === 'object_type') {
-      const review = loadReview(r.annotation_id);
-      const curStatus = review ? review.status : null;
-      const actions = document.createElement('div');
-      actions.className = 'quick-actions';
-      actions.innerHTML = `
-        <button type="button" class="qa-pass${curStatus === 'pass' ? ' current' : ''}" title="通过(键盘 1)">✓</button>
-        <button type="button" class="qa-fail${curStatus === 'fail' ? ' current' : ''}" title="不通过(键盘 2)">✗</button>
-        <button type="button" class="qa-todo${!curStatus ? ' current' : ''}" title="未审 / 清除标记">!</button>
-      `;
-      actions.querySelector('.qa-pass').addEventListener('click', (e) => { e.stopPropagation(); saveReview('pass'); });
-      actions.querySelector('.qa-fail').addEventListener('click', (e) => { e.stopPropagation(); saveReview('fail'); });
-      actions.querySelector('.qa-todo').addEventListener('click', (e) => { e.stopPropagation(); unmarkReview(); });
-      lbl.appendChild(actions);
-    }
+    // (快捷核对按钮已移到字段面板顶部,见 renderFields 开头,不再绑定 object_type)
     sec.appendChild(lbl);
 
     const group = document.createElement('div');
@@ -1500,6 +1546,17 @@ function renderFields(r) {
     fieldsEl.appendChild(sec);
   });
 
+  // 盲标模式可选显示原标注(供比对)
+  if (blind && $('#show-orig') && $('#show-orig').checked) {
+    const ob = document.createElement('div');
+    ob.className = 'field-meta';
+    ob.innerHTML = '<b>原标注:</b> ' + currentSchema().map(f => {
+      const v = r[f.key];
+      return (v != null && String(v) !== '') ? `${escAttr(shortLabel(f.label))}=${escAttr(String(v))}` : '';
+    }).filter(Boolean).join(' · ');
+    fieldsEl.appendChild(ob);
+  }
+
   // 元数据(只读)
   const metaItems = autoMetaFields(state.header).filter(f => r[f.key] !== undefined && r[f.key] !== '');
   if (metaItems.length) {
@@ -1517,6 +1574,14 @@ function renderFields(r) {
     ? `上次核对: ${review.reviewer} · ${new Date(review.reviewed_at).toLocaleString()}`
     : '尚未核对';
   fieldsEl.appendChild(revmeta);
+
+  const ra = loadReannot(r.annotation_id);
+  if (ra) {
+    const ram = document.createElement('div');
+    ram.className = 'field-meta';
+    ram.textContent = `上次重标: ${ra.annotator} · ${ra.mode === 'blind' ? '盲标' : '纠错'} · ${new Date(ra.annotated_at).toLocaleString()}`;
+    fieldsEl.appendChild(ram);
+  }
 }
 
 function escAttr(s) {
@@ -1546,6 +1611,30 @@ function unmarkReview() {
   const r = state.rows[state.index];
   localStorage.removeItem(reviewKey(r.annotation_id));
   state.edits = {};
+  renderList();
+  const next = nextVisibleIndex(state.index);
+  if (next >= 0) selectIndex(next);
+  else selectIndex(state.index);
+}
+
+// 保存重标(纠错/盲标):把当前可见字段的最终值整套存为 reannot 记录
+function saveReannot() {
+  if (state.index < 0) return;
+  const r = state.rows[state.index];
+  const blind = state.subMode === 'blind';
+  const baseVal = (k) => blind ? '' : (r[k] ?? '');
+  const eff = (k) => k in state.edits ? state.edits[k] : baseVal(k);
+  const values = {};
+  currentSchema().forEach(f => {
+    if (f.visibleWhen && eff(f.visibleWhen.field) !== f.visibleWhen.value) return; // 未激活分支不存
+    const v = eff(f.key);
+    if (v != null && String(v) !== '') values[f.key] = v;
+  });
+  const rec = {
+    annotator: state.reviewer, mode: state.subMode, values,
+    note: $('#note').value, annotated_at: new Date().toISOString(),
+  };
+  localStorage.setItem(reannotKey(r.annotation_id), JSON.stringify(rec));
   renderList();
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
@@ -1585,7 +1674,29 @@ function exportMergedCSV(scope) {
   downloadFile(`review-${scopeName}-${state.csvName.replace(/[:\\/]/g, '_')}`, lines.join('\n'), 'text/csv;charset=utf-8');
 }
 
+function applyModeUI() {
+  const isRe = state.mode === 'reannot';
+  document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
+  document.querySelectorAll('#submode-seg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.submode === state.subMode));
+  $('#submode-seg').style.display = isRe ? 'inline-flex' : 'none';
+  $('#show-orig-wrap').style.display = (isRe && state.subMode === 'blind') ? 'inline-flex' : 'none';
+  document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.style.display = isRe ? 'none' : ''; });
+  $('#save-reannot').style.display = isRe ? '' : 'none';
+  $('#skip-reannot').style.display = isRe ? '' : 'none';
+}
+
 function bindAppEvents() {
+  document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
+    state.mode = b.dataset.mode; applyModeUI();
+    if (state.index >= 0) selectIndex(state.index);
+  }));
+  document.querySelectorAll('#submode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
+    state.subMode = b.dataset.submode; applyModeUI();
+    if (state.index >= 0) selectIndex(state.index);
+  }));
+  $('#show-orig').addEventListener('change', () => { if (state.index >= 0) selectIndex(state.index); });
+  $('#save-reannot').addEventListener('click', saveReannot);
+  $('#skip-reannot').addEventListener('click', () => { const n = nextVisibleIndex(state.index); if (n >= 0) selectIndex(n); });
   $('#filter').addEventListener('change', (e) => {
     state.filter = e.target.value;
     renderList();
@@ -1611,9 +1722,10 @@ function bindAppEvents() {
     if (t === 'input' || t === 'select' || t === 'textarea') return;
     if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') { e.preventDefault(); const i = nextVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
     else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') { e.preventDefault(); const i = prevVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
-    else if (e.key === '1') saveReview('pass');
-    else if (e.key === '2') saveReview('fail');
-    else if (e.key === '3') saveReview('doubt');
+    else if (e.key === '1' && state.mode === 'review') saveReview('pass');
+    else if (e.key === '2' && state.mode === 'review') saveReview('fail');
+    else if (e.key === '3' && state.mode === 'review') saveReview('doubt');
+    else if (e.key === 'Enter' && state.mode === 'reannot') saveReannot();
   });
 }
 </script>
