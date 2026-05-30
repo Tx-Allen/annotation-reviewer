@@ -108,6 +108,14 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .seg-btn + .seg-btn { border-left: 1px solid #d0d0d6; }
 .seg-btn.active { background: #2868f3; color: #fff; }
 .mode-bar label { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 4px; }
+.field-reset { font-size: 11px; color: #888; background: none; border: 1px solid #e0e0e6; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+.field-reset:hover { color: #d63939; border-color: #d63939; }
+.compare-box { border: 1px solid #d0dbff; background: #f5f7ff; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
+.compare-title { font-weight: 600; color: #2868f3; margin-bottom: 6px; }
+.compare-row { display: grid; grid-template-columns: 110px 1fr 16px 1fr; gap: 6px; align-items: center; padding: 2px 0; color: #555; }
+.compare-row.changed { color: #b32a30; font-weight: 600; }
+.compare-row .cf { color: #888; font-weight: normal; }
+.compare-row .ca { text-align: center; color: #aaa; }
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
 .img-wrap { background: #fff; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
@@ -318,6 +326,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
           <option value="issues">⚠ 数据问题</option>
           <option value="redone">已重标</option>
           <option value="noredo">未重标</option>
+          <option value="changed">有改动(新≠原)</option>
         </select>
         <span id="progress" class="progress">0 / 0</span>
       </div>
@@ -325,6 +334,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-link" data-export="sample">导出抽样</button>
         <button class="btn-link" data-export="reviewed">仅已审</button>
         <button class="btn-link" data-export="full" id="export-full-btn">全部CSV</button>
+        <button class="btn-link" id="export-reannot">导出重标</button>
+        <button class="btn-link" id="export-changed">仅改动</button>
+        <button class="btn-link" id="compare-summary">对比汇总</button>
         <button class="btn-link" id="export-state2">备份进度</button>
         <button class="btn-link" id="reload-setup">重新加载</button>
       </div>
@@ -353,6 +365,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
           <button type="button" class="seg-btn" data-submode="blind">盲标(清空)</button>
         </div>
         <label id="show-orig-wrap" style="display:none;"><input type="checkbox" id="show-orig"> 显示原标注</label>
+        <label><input type="checkbox" id="compare-toggle"> 对比原值</label>
       </div>
       <div class="detail-body">
         <div class="img-wrap">
@@ -1265,7 +1278,7 @@ function exportProgress() {
   const data = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith('review:')) data[k] = JSON.parse(localStorage.getItem(k));
+    if (k && /^(review:|reannot:|sample:|session:|config:)/.test(k)) data[k] = JSON.parse(localStorage.getItem(k));
   }
   if (!Object.keys(data).length) { alert('没有可导出的进度'); return; }
   downloadFile(`reviewer-progress-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(data, null, 2), 'application/json');
@@ -1278,7 +1291,7 @@ async function importProgress(e) {
     const data = JSON.parse(await f.text());
     let n = 0;
     Object.entries(data).forEach(([k, v]) => {
-      if (k.startsWith('review:')) { localStorage.setItem(k, JSON.stringify(v)); n++; }
+      if (/^(review:|reannot:|sample:|session:|config:)/.test(k)) { localStorage.setItem(k, JSON.stringify(v)); n++; }
     });
     alert(`已导入 ${n} 条进度`);
     refreshStateInfo();
@@ -1360,6 +1373,7 @@ function passesFilter(r) {
   if (state.filter === 'issues') return hasIssues(r);
   if (state.filter === 'redone') return !!loadReannot(r.annotation_id);
   if (state.filter === 'noredo') return !loadReannot(r.annotation_id);
+  if (state.filter === 'changed') return rowHasChange(r);
   return s === state.filter;
 }
 
@@ -1474,6 +1488,16 @@ function renderFields(r) {
     fieldsEl.appendChild(qa);
   }
 
+  // 对比原值(原数据 → 新数据最终值)
+  if ($('#compare-toggle') && $('#compare-toggle').checked) {
+    const box = document.createElement('div');
+    box.className = 'compare-box';
+    box.innerHTML = '<div class="compare-title">原数据 → 新数据(最终值)</div>' + diffRowFinal(r).map(d =>
+      `<div class="compare-row${d.changed ? ' changed' : ''}"><span class="cf">${escAttr(d.label)}</span><span>${escAttr(d.orig) || '∅'}</span><span class="ca">→</span><span>${escAttr(d.final) || '∅'}</span></div>`
+    ).join('');
+    fieldsEl.appendChild(box);
+  }
+
   // 数据问题横幅(盲标模式不基于原值校验,跳过)
   const issues = blind ? [] : validateRow(r, state.edits);
   if (issues.length) {
@@ -1505,7 +1529,15 @@ function renderFields(r) {
     const multiHint = f.type === 'multiple' ? ` <span class="multi-hint">(可多选${f.exclusiveValue ? `,「${escAttr(f.exclusiveValue)}」与其他互斥` : ''})</span>` : '';
     const labelInner = `${escAttr(f.label)}${f.required ? ' <span class="req-mark">*</span>' : ''}${multiHint}`;
     lbl.innerHTML = `<span class="label-text">${labelInner}</span>`;
-    // (快捷核对按钮已移到字段面板顶部,见 renderFields 开头,不再绑定 object_type)
+    // 每字段「重置」按钮:清空该项(并连带清掉依赖它的联动子字段);再点选项也可取消
+    const rbtn = document.createElement('button');
+    rbtn.type = 'button';
+    rbtn.className = 'field-reset';
+    rbtn.textContent = '重置';
+    const hasDep = currentSchema().some(g => g.visibleWhen && g.visibleWhen.field === f.key);
+    rbtn.title = '清空此项' + (hasDep ? '(及其子类别)' : '');
+    rbtn.addEventListener('click', () => resetField(r, f.key));
+    lbl.appendChild(rbtn);
     sec.appendChild(lbl);
 
     const group = document.createElement('div');
@@ -1520,7 +1552,7 @@ function renderFields(r) {
       btn.addEventListener('click', () => {
         let newSel;
         if (f.type === 'single') {
-          newSel = [opt.value];
+          newSel = selected.includes(opt.value) ? [] : [opt.value]; // 再点一次=取消选择(清空该项)
         } else {
           const isExc = f.exclusiveValue === opt.value;
           const hasExc = selected.includes(f.exclusiveValue);
@@ -1674,6 +1706,97 @@ function exportMergedCSV(scope) {
   downloadFile(`review-${scopeName}-${state.csvName.replace(/[:\\/]/g, '_')}`, lines.join('\n'), 'text/csv;charset=utf-8');
 }
 
+// ========== 对比(原数据 vs 新数据) + 重标/仅改动导出 ==========
+// 原值:autoclean 前的真实 CSV 原值(被自动清理过的取留痕)
+function origVal(r, k) {
+  const id = String(r.annotation_id);
+  if (state.autofix[id] && k in state.autofix[id]) return state.autofix[id][k];
+  return r[k] ?? '';
+}
+// 最终值:重标值 > 核对修正 > 当前值
+function finalVal(r, k) {
+  const ra = loadReannot(r.annotation_id);
+  if (ra && ra.values && k in ra.values) return ra.values[k];
+  const rev = loadReview(r.annotation_id);
+  if (rev && rev.edits && k in rev.edits) return rev.edits[k];
+  return r[k] ?? '';
+}
+function diffRowFinal(r) {
+  return currentSchema().map(f => {
+    const o = String(origVal(r, f.key) ?? ''), n = String(finalVal(r, f.key) ?? '');
+    return { key: f.key, label: shortLabel(f.label), orig: o, final: n, changed: o !== n };
+  });
+}
+function rowHasChange(r) { return diffRowFinal(r).some(d => d.changed); }
+
+// 单字段重置:清空该项(并连带清掉依赖它的联动子字段)
+function resetField(r, key) {
+  state.edits[key] = '';
+  currentSchema().forEach(g => { if (g.visibleWhen && g.visibleWhen.field === key) state.edits[g.key] = ''; });
+  renderFields(r);
+}
+
+// 导出重标结果(每个 schema 字段=重标值,加 __orig_/__reannot_*)
+function exportReannotCSV() {
+  const keys = currentSchema().map(f => f.key);
+  const origCols = keys.map(k => '__orig_' + k);
+  const extra = ['__reannot_annotator', '__reannot_mode', '__reannot_at', '__reannot_changed'];
+  const header = [...state.header, ...origCols.filter(c => !state.header.includes(c)), ...extra];
+  const lines = [header.map(csvQuote).join(',')];
+  let cnt = 0;
+  state.rows.forEach(r => {
+    const ra = loadReannot(r.annotation_id);
+    if (!ra) return;
+    cnt++;
+    const merged = { ...r }, changed = [];
+    keys.forEach(k => {
+      const fin = (ra.values && k in ra.values) ? ra.values[k] : '';
+      const o = origVal(r, k);
+      merged[k] = fin; merged['__orig_' + k] = o;
+      if (String(o) !== String(fin)) changed.push(k);
+    });
+    merged.__reannot_annotator = ra.annotator || '';
+    merged.__reannot_mode = ra.mode || '';
+    merged.__reannot_at = ra.annotated_at || '';
+    merged.__reannot_changed = changed.join('|');
+    lines.push(header.map(hd => csvQuote(merged[hd] ?? '')).join(','));
+  });
+  if (!cnt) { alert('还没有重标结果'); return; }
+  downloadFile(`reannot-${state.csvName.replace(/[:\\/]/g, '_')}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+
+// 导出仅改动(新≠原)的行
+function exportChangedOnlyCSV() {
+  const keys = currentSchema().map(f => f.key);
+  const origCols = keys.map(k => '__orig_' + k);
+  const header = [...state.header, ...origCols.filter(c => !state.header.includes(c)), '__changed_fields'];
+  const lines = [header.map(csvQuote).join(',')];
+  let cnt = 0;
+  state.rows.forEach(r => {
+    const diffs = diffRowFinal(r);
+    const changed = diffs.filter(d => d.changed);
+    if (!changed.length) return;
+    cnt++;
+    const merged = { ...r };
+    diffs.forEach(d => { merged[d.key] = d.final; merged['__orig_' + d.key] = d.orig; });
+    merged.__changed_fields = changed.map(d => d.key).join('|');
+    lines.push(header.map(hd => csvQuote(merged[hd] ?? '')).join(','));
+  });
+  if (!cnt) { alert('没有"新≠原"的改动行'); return; }
+  downloadFile(`changed-${state.csvName.replace(/[:\\/]/g, '_')}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+
+// 对比汇总:每个字段改动了多少条
+function compareSummary() {
+  const counts = {};
+  state.rows.forEach(r => diffRowFinal(r).forEach(d => { if (d.changed) counts[d.label] = (counts[d.label] || 0) + 1; }));
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const changedRows = state.rows.filter(rowHasChange).length;
+  alert(entries.length
+    ? `${changedRows}/${state.rows.length} 条有改动\n\n改动字段计数:\n` + entries.map(([k, v]) => `  ${k}: ${v}`).join('\n')
+    : '当前范围内没有"新≠原"的改动');
+}
+
 function applyModeUI() {
   const isRe = state.mode === 'reannot';
   document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
@@ -1716,6 +1839,10 @@ function bindAppEvents() {
   });
   $('#lightbox').addEventListener('click', () => $('#lightbox').classList.remove('show'));
   document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMergedCSV(b.dataset.export)));
+  $('#export-reannot').addEventListener('click', exportReannotCSV);
+  $('#export-changed').addEventListener('click', exportChangedOnlyCSV);
+  $('#compare-summary').addEventListener('click', compareSummary);
+  $('#compare-toggle').addEventListener('change', () => { if (state.index >= 0) selectIndex(state.index); });
   $('#export-state2').addEventListener('click', exportProgress);
   document.addEventListener('keydown', (e) => {
     const t = (e.target.tagName || '').toLowerCase();
