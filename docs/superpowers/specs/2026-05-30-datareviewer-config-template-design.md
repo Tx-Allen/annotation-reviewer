@@ -21,6 +21,7 @@
 2. **重新标注**：在"核对"之外新增"重新标注"功能，**纠错式（预填原值）**与**盲标式（清空从零）**两种，**界面可切换**。
 3. **配置随分包分发**：多人分包时把配置**嵌进任务包 JSON**，检察员导入即自动继承。
 4. **断点续跑**：刷新 / 意外关闭后能继续。**Tier1 轻量（全浏览器）+ Tier2 一键（Chrome/Edge File System Access API）自动回退**。
+5. **对比功能**：把"原数据（原始标注）"与"新数据（重标 / 核对修正后）"放一起对比，逐字段 diff、改动高亮；支持单条对比与整批 diff 汇总。
 
 ## 3. 范围
 
@@ -158,15 +159,24 @@
 - `validateRow(r, edits)` 已是 schema 驱动，改读 `state.schema` 即可；必填、合法选项、`exclusiveValue` 互斥、`visibleWhen` 该空却有值等检查继续生效。
 - 重标模式下亦对 `reannot.values` 跑同一套校验，保证重标结果合规。
 
+### 5.11 对比视图（原数据 vs 新数据）
+
+把"原数据"（CSV 原始标注 `r[字段]`）与"新数据"（**最终值** = `reannot.values[字段]` 若有，否则核对 `review.edits[字段]`，再否则原值）并排对比，逐字段 diff。
+
+- **单条对比**（详情面板）：加「对比」开关，字段区每行显示两列 `原值 | 新值`：不同 → 高亮（改动），相同 → 灰显；多选字段按集合比较并提示"＋增 / －删 了哪些值"。盲标模式下尤其有用（边盲标边随时点开比对）。
+- **批量对比**（数据集级）：新增「对比」视图 / 筛选 —— 只列"新数据 ≠ 原数据"的条目；侧栏给每个字段的改动计数（如 `object_type` 改了 X 条、`defects` 改了 Y 条），点字段名 → 只看该字段有改动的条目。
+- **导出**：批量对比可一键导出"仅改动" CSV，每个改动字段并列 `__orig_<字段>`（原）与字段列（新），复用 §5.9 的 `__orig_` 列约定。
+- **来源开关**：对比的"新数据"默认取最终值；可切到"仅重标值"或"仅核对修正值"，便于分别审重标质量与核对改动。
+
 ---
 
 ## 6. 影响面（index.html 内待改/新增清单）
 
 **改（去全局 schema 耦合）**：`FIELD_SCHEMA`→`DEFAULT_CONFIG` 常量；`validateRow`、`hasIssues`、`renderFields`、`suggestSample`、`renderList` 中 `FIELD_SCHEMA`/`METAFIELDS` 引用 → `state.schema`/`state.metaFields`；`renderFields` 内 `object_type` 特判与多选互斥文案 → 泛化。`state` 增 `config/schema/metaFields/mode/subMode`。
 
-**新增（纯函数优先，便于测试）**：`parseLSXML`、`parseJSONTemplate`、`configToJSON`、`normalizeConfig`、`autoMetaFields`、`reannotKey/loadReannot/saveReannot`、`renderFieldsForMode`、`exportReannotCSV`、`saveSession/loadSession/clearSession`、`idbPutHandles/idbGetHandles`（Tier2）、`resumeFromHandles`、`draft` 读写。
+**新增（纯函数优先，便于测试）**：`parseLSXML`、`parseJSONTemplate`、`configToJSON`、`normalizeConfig`、`autoMetaFields`、`reannotKey/loadReannot/saveReannot`、`renderFieldsForMode`、`exportReannotCSV`、`saveSession/loadSession/clearSession`、`idbPutHandles/idbGetHandles`（Tier2）、`resumeFromHandles`、`draft` 读写、`diffRowFinal`（原值 vs 最终值）、`renderCompareFields`、`datasetDiffSummary`、`exportChangedOnlyCSV`。
 
-**UI 新增**：启动页 ⓪ 配置导入行 + 导出配置按钮 + 续跑横幅 + 一键恢复按钮；主界面 模式开关 + 子模式开关 + 原标注折叠 + 重标底栏 + 重标筛选项 + 导出重标按钮。
+**UI 新增**：启动页 ⓪ 配置导入行 + 导出配置按钮 + 续跑横幅 + 一键恢复按钮；主界面 模式开关 + 子模式开关 + 原标注折叠 + 重标底栏 + 重标筛选项 + 导出重标按钮 + 对比开关 + 批量对比视图(改动计数侧栏) + 导出仅改动按钮。
 
 ## 7. 错误处理
 
@@ -186,6 +196,7 @@
   4. 切「重新标注 / 纠错」→ 改字段 → 保存 → 断言 `reannot:` 写入；切「盲标」→ 原值隐藏、预填空。
   5. 导出重标结果 → 断言含 `__reannot_*` 与 `__orig_*` 列。
   6. 模拟刷新（重载页面）→ Tier1 横幅出现 → 重选 fixtures → 断言定位回 `lastAnnoId`、模式恢复。
+  7. 对比视图：构造原值与重标值不同的条目 → 断言单条 diff 高亮、批量对比只列改动项、改动计数正确、导出"仅改动" CSV 含 `__orig_<字段>`。
 - **解析器纯函数**：可在页面内 `window.__test` 暴露后用 Playwright `evaluate` 直接断言 `parseLSXML/parseJSONTemplate` 输出。
 - 记录进 `test-ledger`（本地 TestRail）。
 
@@ -204,3 +215,4 @@
 4. 重标模式纠错 / 盲标可切换，独立存储，能导出含 `__reannot_*`/`__orig_*` 的结果。
 5. 刷新 / 关闭后：Tier1 重选文件即回到上次位置与模式；Chrome/Edge 下 Tier2 一键恢复连文件都不用重选；不支持环境自动回退。
 6. Playwright 冒烟全绿。
+7. 对比功能：单条逐字段 diff 高亮、批量列出"新 ≠ 原"并给改动计数、可导出仅改动 CSV。
