@@ -517,6 +517,118 @@ const METAFIELDS = [
   { key: 'created_at', label: '创建' },
 ];
 
+// ========== 配置(标注模板)基座 ==========
+// 现有玉石 schema 作为内置默认配置;不导入配置时行为与之前完全一致
+const DEFAULT_CONFIG = {
+  version: 1, kind: 'annotation-config', name: '玉石标注(内置默认)', image_field: 'image',
+  fields: FIELD_SCHEMA, meta_fields: METAFIELDS,
+};
+function currentSchema() { return (state.config && state.config.fields) || FIELD_SCHEMA; }
+function currentMeta()   { return (state.config && state.config.meta_fields) || METAFIELDS; }
+
+// 把任意来源(XML/JSON)归一化成统一 config 结构,并做基本校验
+function normalizeConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') throw new Error('配置为空或非对象');
+  const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
+  if (!fields.length) throw new Error('配置里没有任何字段(fields 为空)');
+  fields.forEach((f, i) => {
+    if (!f.key) throw new Error(`第 ${i + 1} 个字段缺 key`);
+    if (!f.type) f.type = (f.options && f.options.length) ? 'single' : 'text';
+    if ((f.type === 'single' || f.type === 'multiple') && !(f.options && f.options.length))
+      throw new Error(`字段「${f.key}」是 ${f.type} 但没有 options`);
+    f.label = f.label || f.key;
+    f.options = (f.options || []).map(o => typeof o === 'string' ? { value: o, hint: '' } : { value: o.value, hint: o.hint || '' });
+  });
+  return {
+    version: cfg.version || 1, kind: 'annotation-config',
+    name: cfg.name || '导入配置', image_field: cfg.image_field || '',
+    fields, meta_fields: Array.isArray(cfg.meta_fields) ? cfg.meta_fields : [],
+  };
+}
+
+// Label Studio XML 标注配置 → config
+function parseLSXML(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('XML 解析失败(格式非法)');
+  const fields = [], warnings = [];
+  let imageField = '';
+  // 取紧邻前一个 <Header> 的 value 作为可读 label
+  const headerBefore = (el) => {
+    let p = el.previousElementSibling;
+    while (p) {
+      if (p.tagName === 'Header') return p.getAttribute('value') || '';
+      if (p.tagName === 'Choices' || p.tagName === 'TextArea') break;
+      p = p.previousElementSibling;
+    }
+    return '';
+  };
+  doc.querySelectorAll('Image').forEach(img => {
+    const v = img.getAttribute('value') || '';
+    if (v.startsWith('$')) imageField = v.slice(1);
+  });
+  doc.querySelectorAll('Choices').forEach(ch => {
+    const key = ch.getAttribute('name');
+    if (!key) return;
+    const field = {
+      key,
+      type: ch.getAttribute('choice') === 'multiple' ? 'multiple' : 'single',
+      label: ch.getAttribute('title') || headerBefore(ch) || key,
+      required: ch.getAttribute('required') === 'true',
+      options: [],
+    };
+    if (ch.getAttribute('visibleWhen') === 'choice-selected'
+        && ch.getAttribute('whenTagName') && ch.getAttribute('whenChoiceValue')) {
+      field.visibleWhen = { field: ch.getAttribute('whenTagName'), value: ch.getAttribute('whenChoiceValue') };
+    }
+    ch.querySelectorAll('Choice').forEach(c => {
+      const value = c.getAttribute('value');
+      if (value == null) return;
+      field.options.push({ value, hint: c.getAttribute('hint') || '' });
+      if (c.getAttribute('exclusive') === 'true') field.exclusiveValue = value;
+    });
+    if (field.options.length) fields.push(field);
+  });
+  doc.querySelectorAll('TextArea').forEach(ta => {
+    const key = ta.getAttribute('name');
+    if (!key) return;
+    fields.push({ key, type: 'text', label: ta.getAttribute('title') || headerBefore(ta) || key, required: ta.getAttribute('required') === 'true', options: [] });
+  });
+  ['RectangleLabels', 'PolygonLabels', 'Labels', 'Rating', 'Number', 'DateTime'].forEach(tag => {
+    const n = doc.querySelectorAll(tag).length;
+    if (n) warnings.push(`${tag} × ${n}`);
+  });
+  if (!fields.length) throw new Error('XML 里没有可用的 Choices/TextArea 字段');
+  const cfg = normalizeConfig({ name: 'LS 导入配置', image_field: imageField, fields });
+  cfg.warnings = warnings;
+  return cfg;
+}
+
+// 自有 JSON 模板 → config
+function parseJSONTemplate(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch (e) { throw new Error('JSON 解析失败: ' + e.message); }
+  if (obj.kind && obj.kind !== 'annotation-config') throw new Error('kind 不是 annotation-config');
+  return normalizeConfig(obj);
+}
+
+// 当前 config → JSON 模板字符串(可下载,改后再导入)
+function configToJSON(cfg) {
+  const c = cfg || state.config || DEFAULT_CONFIG;
+  return JSON.stringify({
+    version: c.version || 1, kind: 'annotation-config', name: c.name || '配置',
+    image_field: c.image_field || '', fields: c.fields, meta_fields: c.meta_fields || [],
+  }, null, 2);
+}
+
+// CSV 里既不在 fields 也不在 meta_fields、也不是图片列的列 → 自动当只读 meta
+function autoMetaFields(header) {
+  const cfg = state.config || DEFAULT_CONFIG;
+  const known = new Set([...cfg.fields.map(f => f.key), ...(cfg.meta_fields || []).map(m => m.key)]);
+  if (state.imageColumn) known.add(state.imageColumn);
+  const extra = (header || []).filter(h => h && !known.has(h)).map(h => ({ key: h, label: h }));
+  return [...(cfg.meta_fields || []), ...extra];
+}
+
 // 短标签(用于错误信息,去掉前缀编号)
 function shortLabel(label) { return label.replace(/^\d+[A-Z]?\.\s*/, ''); }
 
@@ -544,7 +656,7 @@ function validateRow(r, edits) {
   edits = edits || {};
   const issues = [];
   const eff = (k) => k in edits ? edits[k] : (r[k] ?? '');
-  FIELD_SCHEMA.forEach(f => {
+  currentSchema().forEach(f => {
     if (f.visibleWhen) {
       const dep = eff(f.visibleWhen.field);
       if (dep !== f.visibleWhen.value) {
@@ -586,6 +698,11 @@ function hasIssues(r) {
 }
 
 const state = {
+  config: DEFAULT_CONFIG,   // 当前标注配置(schema 来源);默认=内置玉石
+  mode: 'review',           // 'review' 核对 | 'reannot' 重新标注
+  subMode: 'correct',       // 'correct' 纠错(预填) | 'blind' 盲标(清空)
+  compare: false,           // 单条对比开关
+  autofix: {},              // annoId -> {字段:被自动清空的原值}
   csvName: '',
   reviewer: '',
   header: [],
@@ -1182,7 +1299,7 @@ function renderFields(r) {
     fieldsEl.appendChild(banner);
   }
 
-  FIELD_SCHEMA.forEach(f => {
+  currentSchema().forEach(f => {
     if (f.visibleWhen) {
       const dep = effective(f.visibleWhen.field);
       if (dep !== f.visibleWhen.value) return;
@@ -1260,7 +1377,7 @@ function renderFields(r) {
   });
 
   // 元数据(只读)
-  const metaItems = METAFIELDS.filter(f => r[f.key] !== undefined && r[f.key] !== '');
+  const metaItems = autoMetaFields(state.header).filter(f => r[f.key] !== undefined && r[f.key] !== '');
   if (metaItems.length) {
     const meta = document.createElement('div');
     meta.className = 'meta-fields';
