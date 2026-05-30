@@ -40,6 +40,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .sample-suggest button { padding: 3px 12px; border: 1px solid #1e5aa8; background: #1e5aa8; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .sample-suggest button:hover { background: #144078; }
 .sample-suggest b { color: #0a3666; }
+.config-bar { font-size: 12px; color: #555; margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.config-bar b { color: #2868f3; }
+.autofix-bar { margin-top: 8px; font-size: 12px; color: #8a6200; background: #fbeac1; border-radius: 6px; padding: 6px 8px; }
+.autofix-bar b { color: #8a6200; }
 
 /* Modal */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 998; }
@@ -156,6 +160,21 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
     <label class="file-btn">
       导入任务包
       <input type="file" id="pack-input" accept=".json" style="display:none">
+    </label>
+  </div>
+
+  <div class="row">
+    <label>⓪ 标注配置模板(可选,.xml / .json) — 不选则用内置默认</label>
+    <input type="file" id="config-input" accept=".xml,.json,application/xml,text/xml,application/json">
+    <div class="status" id="config-status"></div>
+    <div class="config-bar" id="config-bar">
+      当前配置: <b id="config-name">玉石标注(内置默认)</b> · <span id="config-fieldcount">—</span>
+      <button type="button" class="btn-link" id="config-export">导出配置JSON</button>
+      <button type="button" class="btn-link" id="config-reset">重置默认</button>
+    </div>
+    <label class="sample-opt" style="margin-top:6px;">
+      <input type="checkbox" id="autoclean-toggle" checked>
+      自动清理条件字段越界值(LS 导出残留,默认开)
     </label>
   </div>
 
@@ -298,6 +317,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-link" id="export-state2">备份进度</button>
         <button class="btn-link" id="reload-setup">重新加载</button>
       </div>
+      <div id="autofix-bar" class="autofix-bar" style="display:none;"></div>
     </div>
     <ul id="list" class="list"></ul>
   </aside>
@@ -795,6 +815,86 @@ const reviewerInput = $('#reviewer-input');
 const startBtn = $('#start-btn');
 const distributeBtn = $('#distribute-btn');
 let pendingCSV = null;
+let pendingAutofix = {};   // CSV 处理时记录被自动清空的越界值: annoId -> {字段: 原值}
+
+// ---- 标注配置(模板)导入 ----
+function refreshConfigBar() {
+  const c = state.config || DEFAULT_CONFIG;
+  $('#config-name').textContent = c.name || '配置';
+  const nv = c.fields.filter(f => f.visibleWhen).length;
+  const nm = c.fields.filter(f => f.type === 'multiple').length;
+  $('#config-fieldcount').textContent = `${c.fields.length} 字段(${nv} 联动 / ${nm} 多选)`;
+}
+function setConfig(cfg) {
+  state.config = cfg;
+  try { localStorage.setItem('config:last', configToJSON(cfg)); } catch {}
+  refreshConfigBar();
+  if (pendingCSV) reprocessPendingCSV();
+}
+function loadSavedConfig() {
+  const raw = localStorage.getItem('config:last');
+  if (raw) { try { state.config = parseJSONTemplate(raw); } catch { state.config = DEFAULT_CONFIG; } }
+  refreshConfigBar();
+}
+$('#config-input').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  const stat = $('#config-status');
+  try {
+    const isXml = /\.xml$/i.test(f.name) || /^\s*</.test(text);
+    const cfg = isXml ? parseLSXML(text) : parseJSONTemplate(text);
+    setConfig(cfg);
+    let msg = `✓ ${f.name} · 解析出 ${cfg.fields.length} 字段`;
+    if (cfg.warnings && cfg.warnings.length) msg += ` · 忽略不支持控件: ${cfg.warnings.join(', ')}`;
+    stat.textContent = msg; stat.className = 'status ok';
+  } catch (err) {
+    stat.textContent = '✗ 配置解析失败: ' + err.message; stat.className = 'status err';
+  }
+});
+$('#config-export').addEventListener('click', () => {
+  downloadJSON(`annotation-config-${(state.config.name || '配置').replace(/[^\w一-龥-]/g, '_')}.json`, JSON.parse(configToJSON()));
+});
+$('#config-reset').addEventListener('click', () => {
+  state.config = DEFAULT_CONFIG;
+  localStorage.removeItem('config:last');
+  const stat = $('#config-status'); stat.textContent = '已重置为内置默认'; stat.className = 'status';
+  refreshConfigBar();
+  if (pendingCSV) reprocessPendingCSV();
+});
+$('#autoclean-toggle').addEventListener('change', reprocessPendingCSV);
+loadSavedConfig();
+
+// ---- 条件字段越界值自动清理(§5.12) ----
+// 分支未激活却有值 → 清空,原值记入 sink[annoId][key]
+function applyAutoClean(rows, sink) {
+  const conds = currentSchema().filter(f => f.visibleWhen);
+  if (!conds.length) return 0;
+  let n = 0;
+  rows.forEach(r => {
+    conds.forEach(f => {
+      const dep = r[f.visibleWhen.field] ?? '';
+      const cur = r[f.key];
+      if (dep !== f.visibleWhen.value && cur != null && String(cur).trim() !== '') {
+        const id = String(r.annotation_id);
+        (sink[id] = sink[id] || {})[f.key] = cur;
+        r[f.key] = '';
+        n++;
+      }
+    });
+  });
+  return n;
+}
+// 从 rawRows 重新派生工作行(应用/不应用自动清理),并刷新列检测与抽样建议
+function reprocessPendingCSV() {
+  if (!pendingCSV) return;
+  pendingAutofix = {};
+  const tog = $('#autoclean-toggle');
+  pendingCSV.rows = pendingCSV.rawRows.map(r => ({ ...r }));
+  if (!tog || tog.checked) applyAutoClean(pendingCSV.rows, pendingAutofix);
+  updateColumnDetection();
+  updateSamplingUI();
+}
 
 function updateButtons() {
   const ready = !!pendingCSV && state.imageMap.size > 0;
@@ -808,11 +908,10 @@ csvInput.addEventListener('change', async (e) => {
   const text = await f.text();
   const parsed = csvToObjects(parseCSV(text));
   parsed.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
-  pendingCSV = { name: f.name, header: parsed.header, rows: parsed.rows };
+  pendingCSV = { name: f.name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
+  reprocessPendingCSV();
   $('#csv-status').textContent = `✓ ${f.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
   $('#csv-status').className = 'status ok';
-  updateColumnDetection();
-  updateSamplingUI();
   updateButtons();
 });
 
@@ -960,6 +1059,7 @@ startBtn.addEventListener('click', () => {
   state.reviewer = reviewerInput.value.trim() || 'anonymous';
   state.imageColumn = $('#col-input').value || 'image';
   state.packMode = false;
+  state.autofix = pendingAutofix;
   initApp();
 });
 
@@ -1009,6 +1109,7 @@ $('#dist-go').addEventListener('click', () => {
     const pack = {
       version: 1,
       kind: 'reviewer-pack',
+      config: state.config,
       csv_name: pendingCSV.name,
       image_column: $('#col-input').value || 'image',
       reviewer: name,
@@ -1086,6 +1187,8 @@ $('#pack-folder-input').addEventListener('change', (e) => {
 
 $('#pack-start-btn').addEventListener('click', () => {
   if (!pendingPack || !state.imageMap.size) return;
+  state.config = pendingPack.config ? (() => { try { return normalizeConfig(pendingPack.config); } catch { return DEFAULT_CONFIG; } })() : DEFAULT_CONFIG;
+  state.autofix = {};
   state.csvName = `pack:${pendingPack.reviewer}:${pendingPack.csv_name}`;
   state.header = pendingPack.header || Object.keys(pendingPack.sample_rows[0] || {});
   state.fullRows = pendingPack.sample_rows.slice();
@@ -1168,6 +1271,18 @@ function loadReview(annoId) {
   return raw ? JSON.parse(raw) : null;
 }
 
+function undoAutoClean() {
+  Object.entries(state.autofix).forEach(([id, fields]) => {
+    const r = (state.rows.find(x => String(x.annotation_id) === id))
+           || (state.fullRows.find(x => String(x.annotation_id) === id));
+    if (r) Object.entries(fields).forEach(([k, v]) => { r[k] = v; });
+  });
+  state.autofix = {};
+  $('#autofix-bar').style.display = 'none';
+  renderList();
+  if (state.index >= 0) selectIndex(state.index);
+}
+
 function initApp() {
   $('#app').classList.add('show');
   $('#who').textContent = state.reviewer;
@@ -1183,6 +1298,15 @@ function initApp() {
     state.filter = 'issues';
     $('#filter').value = 'issues';
     $('#scope-info').textContent += ` · ⚠ ${issueCount} 条有问题`;
+  }
+  const nFix = Object.keys(state.autofix || {}).length;
+  const fixBar = $('#autofix-bar');
+  if (nFix > 0) {
+    fixBar.style.display = 'block';
+    fixBar.innerHTML = `⚙ 已自动清理 <b>${nFix}</b> 条条件字段越界值(LS 残留) · <button class="btn-link" id="autofix-undo">撤销</button>`;
+    $('#autofix-undo').addEventListener('click', undoAutoClean);
+  } else {
+    fixBar.style.display = 'none';
   }
   bindAppEvents();
   renderList();
