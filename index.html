@@ -97,9 +97,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .btn-doubt { border-color: #d59300; color: #d59300; }
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
-.img-wrap { background: #1c1c20; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+.img-wrap { background: #fff; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .img-wrap img { max-width: 100%; max-height: calc(100% - 28px); object-fit: contain; cursor: zoom-in; }
-.img-hint { color: #aab; font-size: 11px; padding: 6px 0; text-align: center; }
+.img-hint { color: #888; font-size: 11px; padding: 6px 0; text-align: center; }
 
 .fields { background: #fff; border: 1px solid #ececf0; border-radius: 8px; padding: 12px; overflow-y: auto; }
 .field-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -1126,7 +1126,7 @@ function renderList() {
   $('#progress').textContent = `${done} / ${state.rows.length}`;
 }
 
-let lastObjectURL = null;
+const imgUrlCache = new Map(); // 文件名(小写) -> object URL,建一次复用;按住方向键也不吊销正在加载的图
 function selectIndex(idx) {
   if (idx < 0 || idx >= state.rows.length) return;
   state.index = idx;
@@ -1143,13 +1143,21 @@ function selectIndex(idx) {
   badge.className = 'badge ' + (status || '');
   badge.textContent = statusLabel(status);
 
-  if (lastObjectURL) URL.revokeObjectURL(lastObjectURL);
-  const file = state.imageMap.get(fn.toLowerCase());
+  const fnKey = fn.toLowerCase();
+  const file = state.imageMap.get(fnKey);
   const img = $('#d-img');
   if (file) {
-    lastObjectURL = URL.createObjectURL(file);
-    img.src = lastObjectURL;
+    let url = imgUrlCache.get(fnKey);
+    if (!url) { url = URL.createObjectURL(file); imgUrlCache.set(fnKey, url); }
+    img.src = url;
     img.alt = fn;
+    // 预取下一张,按住方向键连续切换更顺
+    const nx = nextVisibleIndex(idx);
+    if (nx >= 0) {
+      const nk = extractFilename(state.rows[nx][state.imageColumn]).toLowerCase();
+      const nf = state.imageMap.get(nk);
+      if (nf && !imgUrlCache.has(nk)) imgUrlCache.set(nk, URL.createObjectURL(nf));
+    }
   } else {
     img.removeAttribute('src');
     img.alt = `图片不在选定文件夹: ${fn}`;
