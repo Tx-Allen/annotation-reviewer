@@ -176,6 +176,12 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
   <div id="resume-bar" style="display:none;"></div>
 
+  <div class="row" id="fs-row" style="display:none;">
+    <label>📌 一键恢复(Chrome/Edge):用"可记住"的方式选 CSV + 图片夹,下次免重选</label>
+    <button type="button" class="btn-secondary" id="fs-pick">选 CSV + 图片夹(可记住)</button>
+    <div class="status" id="fs-status"></div>
+  </div>
+
   <div class="pack-entry">
     <span>📦 收到管理员发的任务包?直接导入,跳过下面所有步骤。</span>
     <label class="file-btn">
@@ -1357,8 +1363,86 @@ function renderResumeBar() {
   bar.className = 'resume-bar';
   bar.innerHTML = `▶ 上次: <b>${escAttr(s.csvName)}</b> · 模式 ${s.mode === 'reannot' ? '重标' : '核对'} · 上次 #${s.lastAnnoId ?? '-'} · 已审 ${s.doneCount}/${s.sampleCount}`
     + ` <span style="color:#777;">— 重新选回同名 CSV + 图片文件夹即可接着干,自动跳回上次那条</span>`
-    + ` <button class="btn-link" id="resume-clear">清除</button>`;
+    + ` <button class="btn-link" id="resume-clear">清除</button>`
+    + (fsSupported() ? ` <button class="btn-link" id="resume-oneclick">🔓 一键恢复(Chrome)</button>` : '');
   document.getElementById('resume-clear').addEventListener('click', () => { localStorage.removeItem('session:current'); renderResumeBar(); });
+  const oc = document.getElementById('resume-oneclick');
+  if (oc) oc.addEventListener('click', oneClickResume);
+}
+
+// ---- Tier2: File System Access API 一键恢复(Chrome/Edge);不支持/失败则回退 Tier1 ----
+function fsSupported() { return typeof window !== 'undefined' && 'showOpenFilePicker' in window && 'showDirectoryPicker' in window; }
+function idb() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('annot-reviewer', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readonly'); const r = tx.objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+
+// 与 csvInput/folderInput 等价的加载,供句柄路径复用
+function setPendingCSVFromText(text, name) {
+  const parsed = csvToObjects(parseCSV(text));
+  parsed.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  pendingCSV = { name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
+  reprocessPendingCSV();
+  $('#csv-status').textContent = `✓ ${name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
+  $('#csv-status').className = 'status ok';
+}
+function setImageMapFromFiles(files) {
+  state.imageMap.clear();
+  files.forEach(f => state.imageMap.set((f.name || '').toLowerCase(), f));
+  $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
+  $('#folder-status').className = 'status ok';
+  updateColumnDetection();
+}
+async function dirHandleToFiles(dirHandle) {
+  const files = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === 'file') { try { files.push(await entry.getFile()); } catch (e) {} }
+  }
+  return files;
+}
+async function pickRememberable() {
+  try {
+    const [csvHandle] = await window.showOpenFilePicker({ types: [{ description: 'CSV', accept: { 'text/csv': ['.csv', '.tsv'] } }] });
+    const dirHandle = await window.showDirectoryPicker();
+    setPendingCSVFromText(await (await csvHandle.getFile()).text(), csvHandle.name);
+    setImageMapFromFiles(await dirHandleToFiles(dirHandle));
+    await idbSet('handles', { csvHandle, dirHandle, csvName: csvHandle.name });
+    updateButtons();
+    $('#fs-status').textContent = '✓ 已记住文件,下次可一键恢复'; $('#fs-status').className = 'status ok';
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    $('#fs-status').textContent = '✗ ' + (e.message || e); $('#fs-status').className = 'status err';
+  }
+}
+async function oneClickResume() {
+  try {
+    const h = await idbGet('handles');
+    if (!h) { alert('没有记住的文件,请用上面"可记住的方式"重新选一次'); return; }
+    for (const handle of [h.csvHandle, h.dirHandle]) {
+      let p = await handle.queryPermission({ mode: 'read' });
+      if (p !== 'granted') p = await handle.requestPermission({ mode: 'read' });
+      if (p !== 'granted') throw new Error('文件权限被拒');
+    }
+    setPendingCSVFromText(await (await h.csvHandle.getFile()).text(), h.csvName || h.csvHandle.name);
+    setImageMapFromFiles(await dirHandleToFiles(h.dirHandle));
+    const sess = loadSession();
+    if (sess && sess.reviewer) reviewerInput.value = sess.reviewer;
+    updateButtons();
+    startBtn.click(); // startBtn 内部读 loadSession → 自动续跑到上次位置
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    alert('一键恢复失败(请改用手动重选 CSV+图片夹): ' + (e.message || e));
+  }
+}
+if (fsSupported()) {
+  const _row = document.getElementById('fs-row'); if (_row) _row.style.display = 'flex';
+  const _pick = document.getElementById('fs-pick'); if (_pick) _pick.addEventListener('click', pickRememberable);
 }
 
 function undoAutoClean() {
