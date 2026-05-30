@@ -27,6 +27,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .pack-entry { padding: 10px 12px; background: #fff8e1; border: 1px dashed #d59300; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; font-size: 13px; }
 .pack-entry .file-btn { background: #d59300; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; border: none; }
 .pack-entry .file-btn:hover { background: #b87900; }
+.resume-bar { background: #e7f0ff; border: 1px solid #b8d0ff; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; color: #1e5aa8; line-height: 1.7; }
+.resume-bar b { color: #0a3666; }
 .pack-info { padding: 12px; background: #f5f7ff; border: 1px solid #d0dbff; border-radius: 6px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
 .pack-info b { color: #2868f3; }
 
@@ -171,6 +173,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 <div id="setup">
   <h1>标注核对(本地版)</h1>
   <p class="hint">完全离线运行,CSV 和图片都不离开你的电脑。进度自动存浏览器,也可导出 JSON 备份。</p>
+
+  <div id="resume-bar" style="display:none;"></div>
 
   <div class="pack-entry">
     <span>📦 收到管理员发的任务包?直接导入,跳过下面所有步骤。</span>
@@ -1097,6 +1101,8 @@ startBtn.addEventListener('click', () => {
   state.imageColumn = $('#col-input').value || 'image';
   state.packMode = false;
   state.autofix = pendingAutofix;
+  const sess = loadSession();
+  if (sess && sess.csvName === state.csvName) state._resume = sess;
   initApp();
 });
 
@@ -1270,6 +1276,7 @@ function refreshStateInfo() {
   info.textContent = entries.map(([c, n]) => `${c.length > 30 ? c.slice(0, 30) + '...' : c}: ${n} 条`).join(' · ');
 }
 refreshStateInfo();
+renderResumeBar();
 
 $('#export-state').addEventListener('click', exportProgress);
 $('#import-state').addEventListener('change', importProgress);
@@ -1313,6 +1320,47 @@ function loadReannot(annoId) {
   return raw ? JSON.parse(raw) : null;
 }
 
+// ---- 断点续跑(Tier1 会话指针) + 防误关草稿 ----
+function saveSession() {
+  if (!state.csvName) return;
+  try {
+    const r = state.index >= 0 ? state.rows[state.index] : null;
+    localStorage.setItem('session:current', JSON.stringify({
+      csvName: state.csvName, reviewer: state.reviewer,
+      configName: (state.config || {}).name || '', imageColumn: state.imageColumn,
+      filter: state.filter, mode: state.mode, subMode: state.subMode,
+      lastAnnoId: r ? r.annotation_id : null, packMode: state.packMode,
+      totalRows: state.totalRows, sampleCount: state.rows.length,
+      doneCount: state.rows.filter(x => rowStatus(x)).length,
+    }));
+  } catch (e) {}
+}
+function loadSession() { try { return JSON.parse(localStorage.getItem('session:current')); } catch (e) { return null; } }
+function draftKey(id) { return `draft:${state.csvName}:${id}`; }
+function loadDraft(id) { try { return JSON.parse(localStorage.getItem(draftKey(id))); } catch (e) { return null; } }
+function clearDraft(id) { try { localStorage.removeItem(draftKey(id)); } catch (e) {} }
+function saveDraftCurrent() {
+  if (state.index < 0 || !state.csvName) return;
+  const r = state.rows[state.index];
+  if (!state.edits || !Object.keys(state.edits).length) { clearDraft(r.annotation_id); return; }
+  try {
+    localStorage.setItem(draftKey(r.annotation_id), JSON.stringify({
+      edits: state.edits, note: ($('#note') || {}).value || '', mode: state.mode,
+    }));
+  } catch (e) {}
+}
+function renderResumeBar() {
+  const s = loadSession();
+  const bar = document.getElementById('resume-bar');
+  if (!s || !s.csvName) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  bar.className = 'resume-bar';
+  bar.innerHTML = `▶ 上次: <b>${escAttr(s.csvName)}</b> · 模式 ${s.mode === 'reannot' ? '重标' : '核对'} · 上次 #${s.lastAnnoId ?? '-'} · 已审 ${s.doneCount}/${s.sampleCount}`
+    + ` <span style="color:#777;">— 重新选回同名 CSV + 图片文件夹即可接着干,自动跳回上次那条</span>`
+    + ` <button class="btn-link" id="resume-clear">清除</button>`;
+  document.getElementById('resume-clear').addEventListener('click', () => { localStorage.removeItem('session:current'); renderResumeBar(); });
+}
+
 function undoAutoClean() {
   Object.entries(state.autofix).forEach(([id, fields]) => {
     const r = (state.rows.find(x => String(x.annotation_id) === id))
@@ -1350,10 +1398,24 @@ function initApp() {
   } else {
     fixBar.style.display = 'none';
   }
+  if (state._resume) {
+    if (state._resume.filter) { state.filter = state._resume.filter; $('#filter').value = state.filter; }
+    state.mode = state._resume.mode || 'review';
+    state.subMode = state._resume.subMode || 'correct';
+  }
   applyModeUI();
   bindAppEvents();
   renderList();
-  const i = firstVisibleIndex();
+  let i = firstVisibleIndex();
+  if (state._resume && state._resume.lastAnnoId != null) {
+    const ri = state.rows.findIndex(x => String(x.annotation_id) === String(state._resume.lastAnnoId));
+    if (ri >= 0) {
+      if (!passesFilter(state.rows[ri])) { state.filter = 'all'; $('#filter').value = 'all'; renderList(); }
+      i = ri;
+    }
+  }
+  state._resume = null;
+  saveSession();
   if (i >= 0) selectIndex(i);
 }
 
@@ -1420,6 +1482,7 @@ function selectIndex(idx) {
   state.index = idx;
   state.edits = {};
   renderList();
+  saveSession();
   const r = state.rows[idx];
   const review = loadReview(r.annotation_id);
 
@@ -1458,6 +1521,11 @@ function selectIndex(idx) {
   } else {
     state.edits = review ? { ...(review.edits || {}) } : {};
     $('#note').value = review ? (review.note || '') : '';
+  }
+  const dft = loadDraft(r.annotation_id);
+  if (dft && dft.edits && Object.keys(dft.edits).length) {
+    state.edits = { ...dft.edits };
+    if (dft.note != null && $('#note')) $('#note').value = dft.note;
   }
   renderFields(r);
 }
@@ -1631,6 +1699,7 @@ function saveReview(status) {
     reviewed_at: new Date().toISOString(),
   };
   localStorage.setItem(reviewKey(r.annotation_id), JSON.stringify(review));
+  clearDraft(r.annotation_id);
   renderList();
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
@@ -1667,6 +1736,7 @@ function saveReannot() {
     note: $('#note').value, annotated_at: new Date().toISOString(),
   };
   localStorage.setItem(reannotKey(r.annotation_id), JSON.stringify(rec));
+  clearDraft(r.annotation_id);
   renderList();
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
@@ -1808,7 +1878,12 @@ function applyModeUI() {
   $('#skip-reannot').style.display = isRe ? '' : 'none';
 }
 
+let _unloadBound = false;
 function bindAppEvents() {
+  if (!_unloadBound) {
+    _unloadBound = true;
+    window.addEventListener('beforeunload', () => { saveDraftCurrent(); saveSession(); });
+  }
   document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
     state.mode = b.dataset.mode; applyModeUI();
     if (state.index >= 0) selectIndex(state.index);
