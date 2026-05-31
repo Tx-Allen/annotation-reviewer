@@ -5,169 +5,279 @@
 <title>标注核对(本地版)</title>
 <style>
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: #222; background: #f5f5f7; }
+
+/* ===== 主题变量(浅色默认) ===== */
+:root {
+  color-scheme: light;
+  --bg:#f5f5f7; --surface:#fff; --surface-subtle:#fafbff; --surface-panel:#f5f7ff;
+  --hover:#f3f5f8; --hover-row:#f7f9fb;
+  --text:#222; --text-muted:#555; --text-soft:#666; --text-faint:#888; --text-dim:#aaa;
+  --border:#d0d0d6; --border-soft:#ececf0; --border-divider:#f1f1f4; --border-side:#e2e2e6;
+  --primary:#2868f3; --primary-hover:#1d56d9; --primary-fg:#fff; --primary-disabled:#b0c4e8;
+  --primary-weak-bg:#e7f0ff; --primary-weak-border:#b8d0ff; --primary-weak-2:#d0dbff;
+  --primary-weak-text:#1e5aa8; --primary-weak-strong:#0a3666; --primary-tint:#f0f5ff;
+  --pass:#1a9d4b; --pass-bg:#def2e2; --pass-fg:#1a7d3b;
+  --fail:#d63939; --fail-bg:#f8dcde; --fail-fg:#b32a30;
+  --doubt:#d59300; --doubt-bg:#fbeac1; --doubt-fg:#8a6200; --doubt-hover:#b87900;
+  --edited-bg:#fff8d4; --edited-bg-soft:#fffdf5; --edited-border:#d59300;
+  --pack-bg:#fff8e1; --info-bg:#e7f5ff; --info-border:#b8dcff;
+  --danger-soft-bg:#fff0f0; --danger-soft-border:#f8c0c0;
+  --badge-bg:#eee; --img-bg:#fff;
+  --shadow:rgba(0,0,0,.06); --overlay:rgba(0,0,0,.5); --lightbox:rgba(0,0,0,.92);
+  --chip-current:#222;
+}
+/* ===== 深色:自动跟随系统(用户手动选「浅」时不生效) ===== */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:#191a1d; --surface:#25262b; --surface-subtle:#2b2d33; --surface-panel:#222732;
+    --hover:#303238; --hover-row:#2c2e34;
+    --text:#e7e8ea; --text-muted:#b8bac0; --text-soft:#a4a6ac; --text-faint:#8a8c92; --text-dim:#70727a;
+    --border:#3c3e45; --border-soft:#34363c; --border-divider:#303238; --border-side:#34363c;
+    --primary:#4d83f5; --primary-hover:#5f90f7; --primary-fg:#fff; --primary-disabled:#33425f;
+    --primary-weak-bg:#1d2a44; --primary-weak-border:#33507e; --primary-weak-2:#34507e;
+    --primary-weak-text:#9bc0ff; --primary-weak-strong:#cfe0ff; --primary-tint:#1b2740;
+    --pass:#3fbf6b; --pass-bg:#15331f; --pass-fg:#6fde97;
+    --fail:#f06a6a; --fail-bg:#3a1d1f; --fail-fg:#ff9d9d;
+    --doubt:#e0a72e; --doubt-bg:#33290f; --doubt-fg:#f0c465; --doubt-hover:#c79224;
+    --edited-bg:#3a3420; --edited-bg-soft:#2c2a1c; --edited-border:#b8860b;
+    --pack-bg:#332a12; --info-bg:#15293b; --info-border:#2d4d66;
+    --danger-soft-bg:#331a1a; --danger-soft-border:#643b3d;
+    --badge-bg:#3a3c42; --img-bg:#2a2b30;
+    --shadow:rgba(0,0,0,.4); --overlay:rgba(0,0,0,.6); --lightbox:rgba(0,0,0,.94);
+    --chip-current:#e7e8ea;
+  }
+}
+/* ===== 深色:手动强制 ===== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#191a1d; --surface:#25262b; --surface-subtle:#2b2d33; --surface-panel:#222732;
+  --hover:#303238; --hover-row:#2c2e34;
+  --text:#e7e8ea; --text-muted:#b8bac0; --text-soft:#a4a6ac; --text-faint:#8a8c92; --text-dim:#70727a;
+  --border:#3c3e45; --border-soft:#34363c; --border-divider:#303238; --border-side:#34363c;
+  --primary:#4d83f5; --primary-hover:#5f90f7; --primary-fg:#fff; --primary-disabled:#33425f;
+  --primary-weak-bg:#1d2a44; --primary-weak-border:#33507e; --primary-weak-2:#34507e;
+  --primary-weak-text:#9bc0ff; --primary-weak-strong:#cfe0ff; --primary-tint:#1b2740;
+  --pass:#3fbf6b; --pass-bg:#15331f; --pass-fg:#6fde97;
+  --fail:#f06a6a; --fail-bg:#3a1d1f; --fail-fg:#ff9d9d;
+  --doubt:#e0a72e; --doubt-bg:#33290f; --doubt-fg:#f0c465; --doubt-hover:#c79224;
+  --edited-bg:#3a3420; --edited-bg-soft:#2c2a1c; --edited-border:#b8860b;
+  --pack-bg:#332a12; --info-bg:#15293b; --info-border:#2d4d66;
+  --danger-soft-bg:#331a1a; --danger-soft-border:#643b3d;
+  --badge-bg:#3a3c42; --img-bg:#2a2b30;
+  --shadow:rgba(0,0,0,.4); --overlay:rgba(0,0,0,.6); --lightbox:rgba(0,0,0,.94);
+  --chip-current:#e7e8ea;
+}
+
+html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
 
 /* Setup screen */
-#setup, #pack-setup { max-width: 640px; margin: 60px auto; padding: 28px; background: #fff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+#setup, #pack-setup { max-width: 640px; margin: 60px auto; padding: 28px; background: var(--surface); border-radius: 12px; box-shadow: 0 4px 20px var(--shadow); }
 #setup h1, #pack-setup h1 { margin: 0 0 6px; font-size: 22px; }
-#setup .hint, #pack-setup .hint { color: #777; font-size: 13px; margin-bottom: 18px; }
+#setup .hint, #pack-setup .hint { color: var(--text-faint); font-size: 13px; margin-bottom: 18px; }
 #setup .row, #pack-setup .row { margin: 14px 0; display: flex; flex-direction: column; gap: 6px; }
-#setup label, #pack-setup label { font-size: 13px; color: #555; }
-#setup input[type=file], #setup input[type=text], #pack-setup input[type=file], #pack-setup input[type=text] { padding: 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; width: 100%; }
-#setup .status, #pack-setup .status { font-size: 12px; color: #888; min-height: 16px; }
-#setup .status.ok, #pack-setup .status.ok { color: #1a9d4b; }
-#setup .status.err, #pack-setup .status.err { color: #d63939; }
-.btn-primary { background: #2868f3; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
-.btn-primary:hover:not(:disabled) { background: #1d56d9; }
-.btn-primary:disabled { background: #b0c4e8; cursor: not-allowed; }
-.btn-secondary { background: #fff; color: #2868f3; border: 1px solid #2868f3; padding: 9px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; }
-.btn-secondary:hover { background: #f0f5ff; }
-#setup hr, #pack-setup hr { border: none; border-top: 1px solid #ececf0; margin: 22px 0 16px; }
+#setup label, #pack-setup label { font-size: 13px; color: var(--text-muted); }
+#setup input[type=file], #setup input[type=text], #pack-setup input[type=file], #pack-setup input[type=text] { padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; width: 100%; background: var(--surface); color: var(--text); }
+#setup .status, #pack-setup .status { font-size: 12px; color: var(--text-faint); min-height: 16px; }
+#setup .status.ok, #pack-setup .status.ok { color: var(--pass); }
+#setup .status.err, #pack-setup .status.err { color: var(--fail); }
+.btn-primary { background: var(--primary); color: var(--primary-fg); border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+.btn-primary:disabled { background: var(--primary-disabled); cursor: not-allowed; }
+.btn-secondary { background: var(--surface); color: var(--primary); border: 1px solid var(--primary); padding: 9px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; }
+.btn-secondary:hover { background: var(--primary-tint); }
+#setup hr, #pack-setup hr { border: none; border-top: 1px solid var(--border-soft); margin: 22px 0 16px; }
 .button-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.pack-entry { padding: 10px 12px; background: #fff8e1; border: 1px dashed #d59300; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; font-size: 13px; }
-.pack-entry .file-btn { background: #d59300; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; border: none; }
-.pack-entry .file-btn:hover { background: #b87900; }
-.resume-bar { background: #e7f0ff; border: 1px solid #b8d0ff; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; color: #1e5aa8; line-height: 1.7; }
-.resume-bar b { color: #0a3666; }
-.pack-info { padding: 12px; background: #f5f7ff; border: 1px solid #d0dbff; border-radius: 6px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
-.pack-info b { color: #2868f3; }
+.pack-entry { padding: 10px 12px; background: var(--pack-bg); border: 1px dashed var(--doubt); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; font-size: 13px; color: var(--text); }
+.pack-entry .file-btn { background: var(--doubt); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; border: none; }
+.pack-entry .file-btn:hover { background: var(--doubt-hover); }
+.resume-bar { background: var(--primary-weak-bg); border: 1px solid var(--primary-weak-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; color: var(--primary-weak-text); line-height: 1.7; }
+.resume-bar b { color: var(--primary-weak-strong); }
+.pack-info { padding: 12px; background: var(--surface-panel); border: 1px solid var(--primary-weak-2); border-radius: 6px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+.pack-info b { color: var(--primary); }
 
-.sample-options { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: #fafbff; border: 1px solid #ececf0; border-radius: 6px; }
+.sample-options { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--surface-subtle); border: 1px solid var(--border-soft); border-radius: 6px; }
 .sample-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
-.sample-opt input[type=number], .sample-opt select, .sample-opt input[type=text] { padding: 3px 6px; border: 1px solid #d0d0d6; border-radius: 4px; font-size: 13px; background: #fff; }
-.sample-opt em { color: #1a7d3b; font-style: normal; font-size: 12px; }
-.seed-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; padding-top: 4px; border-top: 1px dashed #ececf0; margin-top: 2px; }
+.sample-opt input[type=number], .sample-opt select, .sample-opt input[type=text] { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; background: var(--surface); color: var(--text); }
+.sample-opt em { color: var(--pass-fg); font-style: normal; font-size: 12px; }
+.seed-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-soft); padding-top: 4px; border-top: 1px dashed var(--border-soft); margin-top: 2px; }
 .seed-row input { width: 120px; }
-.sample-suggest { padding: 8px 10px; background: #e7f5ff; border: 1px solid #b8dcff; border-radius: 6px; font-size: 12px; color: #1e5aa8; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; line-height: 1.5; }
-.sample-suggest button { padding: 3px 12px; border: 1px solid #1e5aa8; background: #1e5aa8; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
-.sample-suggest button:hover { background: #144078; }
-.sample-suggest b { color: #0a3666; }
-.config-bar { font-size: 12px; color: #555; margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.config-bar b { color: #2868f3; }
-.autofix-bar { margin-top: 8px; font-size: 12px; color: #8a6200; background: #fbeac1; border-radius: 6px; padding: 6px 8px; }
-.autofix-bar b { color: #8a6200; }
+.sample-suggest { padding: 8px 10px; background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 6px; font-size: 12px; color: var(--primary-weak-text); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; line-height: 1.5; }
+.sample-suggest button { padding: 3px 12px; border: 1px solid var(--primary-weak-text); background: var(--primary-weak-text); color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.sample-suggest button:hover { background: var(--primary-hover); }
+.sample-suggest b { color: var(--primary-weak-strong); }
+.config-bar { font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.config-bar b { color: var(--primary); }
+.autofix-bar { margin-top: 8px; font-size: 12px; color: var(--doubt-fg); background: var(--doubt-bg); border-radius: 6px; padding: 6px 8px; }
+.autofix-bar b { color: var(--doubt-fg); }
 
 /* Modal */
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 998; }
+.modal { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 998; }
 .modal.show { display: flex; }
-.modal-card { background: #fff; padding: 22px; border-radius: 12px; max-width: 540px; width: 90%; max-height: 80vh; overflow-y: auto; }
+.modal-card { background: var(--surface); padding: 22px; border-radius: 12px; max-width: 540px; width: 90%; max-height: 80vh; overflow-y: auto; color: var(--text); }
 .modal-card h2 { margin: 0 0 8px; font-size: 18px; }
-.modal-card .hint { color: #777; font-size: 13px; margin-bottom: 14px; }
-.modal-card textarea { width: 100%; min-height: 120px; padding: 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; resize: vertical; }
+.modal-card .hint { color: var(--text-faint); font-size: 13px; margin-bottom: 14px; }
+.modal-card textarea { width: 100%; min-height: 120px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; resize: vertical; background: var(--surface); color: var(--text); }
 .modal-card .row { margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
-.modal-card label { font-size: 13px; color: #555; }
-.modal-card .preview { padding: 10px; background: #f5f5f7; border-radius: 6px; font-size: 12px; color: #444; max-height: 160px; overflow-y: auto; font-family: ui-monospace, Consolas, monospace; }
+.modal-card label { font-size: 13px; color: var(--text-muted); }
+.modal-card .preview { padding: 10px; background: var(--bg); border-radius: 6px; font-size: 12px; color: var(--text-muted); max-height: 160px; overflow-y: auto; font-family: ui-monospace, Consolas, monospace; }
 .modal-card .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
 
 /* Main */
 .app { display: none; height: 100vh; }
 .app.show { display: flex; }
-.sidebar { width: 300px; min-width: 300px; background: #fff; border-right: 1px solid #e2e2e6; display: flex; flex-direction: column; }
-.sidebar-head { padding: 12px; border-bottom: 1px solid #ececf0; }
+.sidebar { width: 300px; min-width: 300px; background: var(--surface); border-right: 1px solid var(--border-side); display: flex; flex-direction: column; }
+.sidebar-head { padding: 12px; border-bottom: 1px solid var(--border-soft); }
 .sidebar-head .title { font-weight: 600; font-size: 15px; }
-.sidebar-head .meta { font-size: 12px; color: #666; margin-top: 4px; }
+.sidebar-head .meta { font-size: 12px; color: var(--text-soft); margin-top: 4px; }
 .filter-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
-.filter-row select { flex: 1; padding: 4px 6px; border-radius: 6px; border: 1px solid #ddd; font-size: 13px; }
-.progress { font-size: 12px; color: #555; }
+.filter-row select { flex: 1; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); font-size: 13px; background: var(--surface); color: var(--text); }
+.progress { font-size: 12px; color: var(--text-muted); }
 .actions-row { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
-.btn-link { font-size: 12px; color: #2868f3; text-decoration: none; cursor: pointer; background: none; border: none; padding: 0; }
+.btn-link { font-size: 12px; color: var(--primary); text-decoration: none; cursor: pointer; background: none; border: none; padding: 0; }
 .btn-link:hover { text-decoration: underline; }
-.btn-link.danger { color: #d63939; }
+.btn-link.danger { color: var(--fail); }
 
 .list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-.list li { padding: 8px 12px; border-bottom: 1px solid #f1f1f4; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-.list li:hover { background: #f7f9fb; }
-.list li.active { background: #e7f0ff; }
+.list li { padding: 8px 12px; border-bottom: 1px solid var(--border-divider); cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.list li:hover { background: var(--hover-row); }
+.list li.active { background: var(--primary-weak-bg); }
 .list .st { width: 16px; text-align: center; font-weight: 600; }
-.list .st.pass { color: #1a9d4b; }
-.list .st.fail { color: #d63939; }
-.list .st.doubt { color: #d59300; }
-.list .st.todo { color: #aaa; }
-.list .id { color: #888; font-variant-numeric: tabular-nums; min-width: 36px; }
+.list .st.pass { color: var(--pass); }
+.list .st.fail { color: var(--fail); }
+.list .st.doubt { color: var(--doubt); }
+.list .st.todo { color: var(--text-dim); }
+.list .id { color: var(--text-faint); font-variant-numeric: tabular-nums; min-width: 36px; }
 .list .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
 .detail { display: flex; flex-direction: column; flex: 1; gap: 12px; }
 .detail-head { display: flex; align-items: center; gap: 10px; }
-.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
-.badge.pass { background: #def2e2; color: #1a7d3b; }
-.badge.fail { background: #f8dcde; color: #b32a30; }
-.badge.doubt { background: #fbeac1; color: #8a6200; }
-.d-id { font-variant-numeric: tabular-nums; color: #666; font-size: 13px; }
-.d-filename { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: #333; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--badge-bg); }
+.badge.pass { background: var(--pass-bg); color: var(--pass-fg); }
+.badge.fail { background: var(--fail-bg); color: var(--fail-fg); }
+.badge.doubt { background: var(--doubt-bg); color: var(--doubt-fg); }
+.d-id { font-variant-numeric: tabular-nums; color: var(--text-soft); font-size: 13px; }
+.d-filename { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--text); }
 .spacer { flex: 1; }
-.btn { padding: 6px 12px; border: 1px solid #d0d0d6; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn:hover { background: #f3f5f8; }
-.btn-pass { border-color: #1a9d4b; color: #1a9d4b; }
-.btn-fail { border-color: #d63939; color: #d63939; }
-.btn-doubt { border-color: #d59300; color: #d59300; }
-.btn-reannot { border-color: #2868f3; color: #fff; background: #2868f3; }
-.btn-reannot:hover { background: #1d56d9; }
+.btn { padding: 6px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text); }
+.btn:hover { background: var(--hover); }
+.btn-pass { border-color: var(--pass); color: var(--pass); }
+.btn-fail { border-color: var(--fail); color: var(--fail); }
+.btn-doubt { border-color: var(--doubt); color: var(--doubt); }
+.btn-reannot { border-color: var(--primary); color: var(--primary-fg); background: var(--primary); }
+.btn-reannot:hover { background: var(--primary-hover); }
 
 .mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 2px 0; }
-.seg { display: inline-flex; border: 1px solid #d0d0d6; border-radius: 6px; overflow: hidden; }
-.seg-btn { padding: 4px 12px; border: none; background: #fff; cursor: pointer; font-size: 13px; color: #444; }
-.seg-btn + .seg-btn { border-left: 1px solid #d0d0d6; }
-.seg-btn.active { background: #2868f3; color: #fff; }
-.mode-bar label { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 4px; }
-.field-reset { font-size: 11px; color: #888; background: none; border: 1px solid #e0e0e6; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
-.field-reset:hover { color: #d63939; border-color: #d63939; }
-.compare-box { border: 1px solid #d0dbff; background: #f5f7ff; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
-.compare-title { font-weight: 600; color: #2868f3; margin-bottom: 6px; }
-.compare-row { display: grid; grid-template-columns: 110px 1fr 16px 1fr; gap: 6px; align-items: center; padding: 2px 0; color: #555; }
-.compare-row.changed { color: #b32a30; font-weight: 600; }
-.compare-row .cf { color: #888; font-weight: normal; }
-.compare-row .ca { text-align: center; color: #aaa; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg-btn { padding: 4px 12px; border: none; background: var(--surface); cursor: pointer; font-size: 13px; color: var(--text-muted); }
+.seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.seg-btn.active { background: var(--primary); color: var(--primary-fg); }
+.mode-bar label { font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; }
+.field-reset { font-size: 11px; color: var(--text-faint); background: none; border: 1px solid var(--border-soft); border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+.field-reset:hover { color: var(--fail); border-color: var(--fail); }
+.compare-box { border: 1px solid var(--primary-weak-2); background: var(--surface-panel); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
+.compare-title { font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+.compare-row { display: grid; grid-template-columns: 110px 1fr 16px 1fr; gap: 6px; align-items: center; padding: 2px 0; color: var(--text-muted); }
+.compare-row.changed { color: var(--fail-fg); font-weight: 600; }
+.compare-row .cf { color: var(--text-faint); font-weight: normal; }
+.compare-row .ca { text-align: center; color: var(--text-dim); }
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
-.img-wrap { background: #fff; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+.img-wrap { background: var(--img-bg); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .img-wrap img { max-width: 100%; max-height: calc(100% - 28px); object-fit: contain; cursor: zoom-in; }
-.img-hint { color: #888; font-size: 11px; padding: 6px 0; text-align: center; }
+.img-hint { color: var(--text-faint); font-size: 11px; padding: 6px 0; text-align: center; }
 
-.fields { background: #fff; border: 1px solid #ececf0; border-radius: 8px; padding: 12px; overflow-y: auto; }
+.fields { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; overflow-y: auto; }
 .field-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
-.field-row label { font-size: 12px; color: #666; }
-.field-row input, .field-row select { padding: 5px 8px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; width: 100%; background: #fff; }
-.field-row.edited input, .field-row.edited select { background: #fff8d4; border-color: #d59300; }
-.field-row.readonly input { background: #f5f5f7; color: #888; }
-.field-meta { color: #999; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #eee; }
+.field-row label { font-size: 12px; color: var(--text-soft); }
+.field-row input, .field-row select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; width: 100%; background: var(--surface); color: var(--text); }
+.field-row.edited input, .field-row.edited select { background: var(--edited-bg); border-color: var(--edited-border); }
+.field-row.readonly input { background: var(--bg); color: var(--text-faint); }
+.field-meta { color: var(--text-faint); font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-soft); }
 
 /* Schema-driven field render */
-.field-section { padding: 10px 12px; border: 1px solid #ececf0; border-radius: 6px; margin-bottom: 10px; background: #fff; }
-.field-section.edited { border-left: 3px solid #d59300; background: #fffdf5; }
-.field-label { font-size: 13px; color: #333; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.field-label .req-mark { color: #d63939; margin-left: 2px; }
-.field-label .multi-hint { color: #888; font-weight: normal; font-size: 11px; margin-left: 4px; }
+.field-section { padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 6px; margin-bottom: 10px; background: var(--surface); }
+.field-section.edited { border-left: 3px solid var(--edited-border); background: var(--edited-bg-soft); }
+.field-section.active-field { box-shadow: 0 0 0 2px var(--primary); border-color: var(--primary); }
+.field-label { font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.field-label .req-mark { color: var(--fail); margin-left: 2px; }
+.field-label .multi-hint { color: var(--text-faint); font-weight: normal; font-size: 11px; margin-left: 4px; }
 .field-label .label-text { flex: 1; }
 .quick-actions { display: flex; gap: 6px; }
 .quick-actions button { width: 30px; height: 30px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; transition: transform .12s, box-shadow .12s; }
 .quick-actions button:hover { transform: scale(1.1); box-shadow: 0 2px 6px rgba(0,0,0,.2); }
-.quick-actions .qa-pass { background: #1a9d4b; }
-.quick-actions .qa-fail { background: #d63939; }
-.quick-actions .qa-todo { background: #d59300; }
-.quick-actions button.current { border-color: #222; }
+.quick-actions .qa-pass { background: var(--pass); }
+.quick-actions .qa-fail { background: var(--fail); }
+.quick-actions .qa-todo { background: var(--doubt); }
+.quick-actions button.current { border-color: var(--chip-current); }
 .choice-group { display: flex; flex-wrap: wrap; gap: 6px; }
-.choice-pill { padding: 4px 11px; border: 1px solid #d0d0d6; background: #fff; border-radius: 14px; cursor: pointer; font-size: 12px; transition: all .12s; line-height: 1.3; }
-.choice-pill:hover { border-color: #2868f3; color: #2868f3; }
-.choice-pill.active { background: #2868f3; color: #fff; border-color: #2868f3; }
-.choice-pill.multi.active { background: #1a7d3b; border-color: #1a7d3b; }
-.issues-banner { padding: 10px 12px; background: #fff0f0; border: 1px solid #f8c0c0; border-radius: 6px; margin-bottom: 12px; color: #b32a30; font-size: 12px; line-height: 1.5; }
-.issues-banner b { color: #b32a30; }
+.choice-pill { padding: 4px 11px; border: 1px solid var(--border); background: var(--surface); border-radius: 14px; cursor: pointer; font-size: 12px; transition: all .12s; line-height: 1.3; color: var(--text); }
+.choice-pill:hover { border-color: var(--primary); color: var(--primary); }
+.choice-pill.active { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+.choice-pill.multi.active { background: var(--pass); border-color: var(--pass); }
+.issues-banner { padding: 10px 12px; background: var(--danger-soft-bg); border: 1px solid var(--danger-soft-border); border-radius: 6px; margin-bottom: 12px; color: var(--fail-fg); font-size: 12px; line-height: 1.5; }
+.issues-banner b { color: var(--fail-fg); }
 .issues-banner ul { margin: 4px 0 0 16px; padding: 0; }
 .issues-banner li { margin: 2px 0; }
-.meta-fields { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; padding: 8px 0 0; border-top: 1px dashed #ddd; font-size: 11px; color: #999; }
-.meta-fields b { color: #666; margin-right: 4px; }
-.issue-mark { color: #d63939; font-weight: 600; }
+.meta-fields { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; padding: 8px 0 0; border-top: 1px dashed var(--border-soft); font-size: 11px; color: var(--text-faint); }
+.meta-fields b { color: var(--text-soft); margin-right: 4px; }
+.issue-mark { color: var(--fail); font-weight: 600; }
 
-.detail-foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #ececf0; }
-#note { flex: 1; padding: 6px 10px; border: 1px solid #d0d0d6; border-radius: 6px; font-size: 13px; }
+.detail-foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+#note { flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: var(--surface); color: var(--text); }
 
-.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; align-items: center; justify-content: center; z-index: 999; cursor: zoom-out; }
+.lightbox { position: fixed; inset: 0; background: var(--lightbox); display: none; align-items: center; justify-content: center; z-index: 999; cursor: zoom-out; }
 .lightbox.show { display: flex; }
 .lightbox img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* 主题开关 */
+.theme-toggle { position: fixed; top: 10px; right: 12px; z-index: 1000; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 2px 8px var(--shadow); }
+.theme-toggle button { border: none; background: var(--surface); color: var(--text-muted); padding: 4px 9px; cursor: pointer; font-size: 13px; line-height: 1.4; }
+.theme-toggle button + button { border-left: 1px solid var(--border-soft); }
+.theme-toggle button.active { background: var(--primary); color: var(--primary-fg); }
+/* 从零标注入口 */
+.btn-annotate { background: var(--pass); color: #fff; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.btn-annotate:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-annotate:disabled { background: var(--border); color: var(--text-faint); cursor: not-allowed; }
+
+/* 键盘可达性:统一的聚焦环 */
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* 侧栏抽屉开关(仅移动端可见) */
+.sidebar-toggle { display: none; position: fixed; top: 10px; left: 12px; z-index: 1000; width: 38px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 17px; cursor: pointer; box-shadow: 0 2px 8px var(--shadow); }
+
+/* ===== 移动端自适应 ===== */
+@media (max-width: 760px) {
+  .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .theme-toggle { top: 8px; right: 8px; }
+  .theme-toggle button { padding: 6px 8px; }
+  #setup, #pack-setup { margin: 14px auto; padding: 16px; }
+  .app { position: relative; }
+  .sidebar { position: absolute; left: 0; top: 0; height: 100%; z-index: 50; width: 84%; min-width: 0; max-width: 320px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: 2px 0 16px rgba(0,0,0,.35); }
+  .app.drawer-open .sidebar { transform: translateX(0); }
+  .app.drawer-open::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 45; }
+  .main { padding: 10px; padding-top: 50px; }
+  .detail-body { grid-template-columns: 1fr; gap: 10px; }
+  .img-wrap { min-height: 40vh; }
+  .detail-head, .detail-foot, .mode-bar { flex-wrap: wrap; row-gap: 8px; }
+  .detail-head .spacer { display: none; }
+  .choice-pill { padding: 8px 13px; font-size: 13px; }
+  .btn, .seg-btn { padding: 8px 12px; }
+  #note { min-width: 100%; order: -1; }
+}
 </style>
 </head>
 <body>
+
+<button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="切换列表抽屉">☰</button>
+
+<!-- 主题开关(浅/深/跟随系统) -->
+<div class="theme-toggle" id="theme-toggle" role="group" aria-label="主题">
+  <button type="button" data-theme-pref="light" title="浅色" aria-label="浅色主题">☀</button>
+  <button type="button" data-theme-pref="dark" title="深色" aria-label="深色主题">🌙</button>
+  <button type="button" data-theme-pref="auto" title="跟随系统" aria-label="跟随系统主题">⚙</button>
+</div>
 
 <!-- 启动页(管理员/自助) -->
 <div id="setup">
@@ -264,6 +374,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
   <div class="button-row">
     <button id="start-btn" class="btn-primary" disabled>开始核对</button>
     <button id="distribute-btn" class="btn-secondary" disabled type="button">📤 分给多人 ↓</button>
+    <button id="annotate-btn" class="btn-annotate" disabled type="button" title="只选「②图片文件夹」即可,从零开始标注,不需要 CSV。字段用上面⓪的配置(没导则用内置默认)。">📸 只选图片 · 从零标注</button>
   </div>
 
   <hr>
@@ -337,6 +448,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
           <option value="redone">已重标</option>
           <option value="noredo">未重标</option>
           <option value="changed">有改动(新≠原)</option>
+          <option value="excluded">🚫 已排除</option>
         </select>
         <span id="progress" class="progress">0 / 0</span>
       </div>
@@ -345,7 +457,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-link" data-export="reviewed">仅已审</button>
         <button class="btn-link" data-export="full" id="export-full-btn">全部CSV</button>
         <button class="btn-link" id="export-reannot">导出重标</button>
+        <button class="btn-link" id="export-annotate" style="display:none;">⬇ 导出标注CSV</button>
         <button class="btn-link" id="export-changed">仅改动</button>
+        <button class="btn-link" id="export-lsjson" title="导出 Label Studio 可导入的 JSON">LS-JSON</button>
         <button class="btn-link" id="compare-summary">对比汇总</button>
         <button class="btn-link" id="export-state2">备份进度</button>
         <button class="btn-link" id="reload-setup">重新加载</button>
@@ -391,6 +505,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn btn-doubt" data-status="doubt">存疑 (3)</button>
         <button class="btn btn-reannot" id="save-reannot" style="display:none;">保存重标 (Enter)</button>
         <button class="btn" id="skip-reannot" style="display:none;">跳过</button>
+        <button class="btn" id="exclude-btn" title="这张图不属于本数据集 → 从列表与导出里排除(快捷键 E)">✗ 不属于本集 (E)</button>
       </div>
     </div>
   </main>
@@ -759,6 +874,8 @@ function validateRow(r, edits) {
 }
 
 function hasIssues(r) {
+  const e = idxOf(r);
+  if (e) return e.issues;
   const review = loadReview(r.annotation_id);
   const edits = review ? review.edits || {} : {};
   return validateRow(r, edits).length > 0;
@@ -947,6 +1064,7 @@ function updateButtons() {
   const ready = !!pendingCSV && state.imageMap.size > 0;
   startBtn.disabled = !ready;
   distributeBtn.disabled = !pendingCSV; // 分包不需要图片文件夹(只产 JSON)
+  const ab = $('#annotate-btn'); if (ab) ab.disabled = state.imageMap.size === 0; // 只要有图片就能从零标注
 }
 
 csvInput.addEventListener('change', async (e) => {
@@ -954,7 +1072,7 @@ csvInput.addEventListener('change', async (e) => {
   if (!f) return;
   const text = await f.text();
   const parsed = csvToObjects(parseCSV(text));
-  parsed.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  ensureUniqueIds(parsed.rows);
   pendingCSV = { name: f.name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
   reprocessPendingCSV();
   $('#csv-status').textContent = `✓ ${f.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
@@ -966,6 +1084,7 @@ folderInput.addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
   state.imageMap.clear();
   files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
+  annotateFolderName = ((files[0] && files[0].webkitRelativePath) || '').split('/')[0] || '';
   $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
   $('#folder-status').className = 'status ok';
   updateColumnDetection();
@@ -1243,7 +1362,7 @@ $('#pack-start-btn').addEventListener('click', () => {
   state.fullRows = pendingPack.sample_rows.slice();
   state.totalRows = pendingPack.total_csv_rows || pendingPack.sample_rows.length;
   state.rows = pendingPack.sample_rows.slice();
-  state.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  ensureUniqueIds(state.rows);
   state.imageColumn = pendingPack.image_column || 'image';
   state.reviewer = $('#pack-reviewer-input').value.trim() || pendingPack.reviewer || 'anonymous';
   state.packMode = true;
@@ -1288,26 +1407,34 @@ $('#export-state').addEventListener('click', exportProgress);
 $('#import-state').addEventListener('change', importProgress);
 
 function exportProgress() {
+  try { saveDraftCurrent(); } catch (e) {} // 先把当前草稿落盘再导出
   const data = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && /^(review:|reannot:|sample:|session:|config:)/.test(k)) data[k] = JSON.parse(localStorage.getItem(k));
+    if (k && /^(review:|reannot:|sample:|session:|config:|draft:|excluded:)/.test(k)) {
+      try { data[k] = JSON.parse(localStorage.getItem(k)); } catch { data[k] = localStorage.getItem(k); }
+    }
   }
   if (!Object.keys(data).length) { alert('没有可导出的进度'); return; }
-  downloadFile(`reviewer-progress-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(data, null, 2), 'application/json');
+  // 用 downloadJSON(不带 BOM),否则 importProgress 的 JSON.parse 会被 BOM 噎死
+  downloadJSON(`reviewer-progress-${new Date().toISOString().slice(0,10)}.json`, data);
 }
 
 async function importProgress(e) {
   const f = e.target.files[0];
   if (!f) return;
   try {
-    const data = JSON.parse(await f.text());
-    let n = 0;
+    const text = (await f.text()).replace(/^﻿/, ''); // 容旧版导出残留的 BOM
+    const data = JSON.parse(text);
+    let n = 0, fail = 0;
     Object.entries(data).forEach(([k, v]) => {
-      if (/^(review:|reannot:|sample:|session:|config:)/.test(k)) { localStorage.setItem(k, JSON.stringify(v)); n++; }
+      if (/^(review:|reannot:|sample:|session:|config:|draft:|excluded:)/.test(k)) {
+        if (safeSet(k, typeof v === 'string' ? v : JSON.stringify(v))) n++; else fail++;
+      }
     });
-    alert(`已导入 ${n} 条进度`);
+    alert(`已导入 ${n} 条进度` + (fail ? `(${fail} 条因存储已满未写入,先清理再导入)` : ''));
     refreshStateInfo();
+    renderResumeBar();
   } catch (err) {
     alert('导入失败: ' + err.message);
   }
@@ -1386,7 +1513,7 @@ async function idbGet(k) { const db = await idb(); return new Promise((res, rej)
 // 与 csvInput/folderInput 等价的加载,供句柄路径复用
 function setPendingCSVFromText(text, name) {
   const parsed = csvToObjects(parseCSV(text));
-  parsed.rows.forEach((r, i) => { if (!r.annotation_id) r.annotation_id = String(i + 1); });
+  ensureUniqueIds(parsed.rows);
   pendingCSV = { name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
   reprocessPendingCSV();
   $('#csv-status').textContent = `✓ ${name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
@@ -1453,6 +1580,7 @@ function undoAutoClean() {
   });
   state.autofix = {};
   $('#autofix-bar').style.display = 'none';
+  buildIndex();
   renderList();
   if (state.index >= 0) selectIndex(state.index);
 }
@@ -1460,6 +1588,7 @@ function undoAutoClean() {
 function initApp() {
   $('#app').classList.add('show');
   $('#who').textContent = state.reviewer;
+  if (state.mode === 'annotate') { initAnnotateApp(); return; }
   $('#csv-name').textContent = state.packMode ? `📦 任务包(${state.rows.length} 条)` : `CSV: ${state.csvName}`;
   $('#scope-info').textContent = state.rows.length < state.totalRows
     ? `抽样 ${state.rows.length}/${state.totalRows}`
@@ -1489,6 +1618,7 @@ function initApp() {
   }
   applyModeUI();
   bindAppEvents();
+  buildIndex();
   renderList();
   let i = firstVisibleIndex();
   if (state._resume && state._resume.lastAnnoId != null) {
@@ -1508,17 +1638,27 @@ function statusSym(s) { return { pass:'✓', fail:'✗', doubt:'?', todo:'·' }[
 function statusLabel(s) { return { pass:'通过', fail:'不通过', doubt:'存疑', todo:'未审' }[statusKey(s)]; }
 
 function rowStatus(r) {
+  const e = idxOf(r);
+  if (e) return e.status;
   const rev = loadReview(r.annotation_id);
   return rev ? rev.status : null;
 }
 
 function passesFilter(r) {
+  const excluded = idxExcluded(r);
+  if (state.filter === 'excluded') return excluded;
+  if (excluded) return false; // 已排除默认不显示(除非专门看「已排除」)
+  if (state.mode === 'annotate') {
+    if (state.filter === 'done') return idxReannot(r);
+    if (state.filter === 'todo') return !idxReannot(r);
+    return true;
+  }
   const s = statusKey(rowStatus(r));
   if (state.filter === 'all') return true;
   if (state.filter === 'todo') return s === 'todo';
   if (state.filter === 'issues') return hasIssues(r);
-  if (state.filter === 'redone') return !!loadReannot(r.annotation_id);
-  if (state.filter === 'noredo') return !loadReannot(r.annotation_id);
+  if (state.filter === 'redone') return idxReannot(r);
+  if (state.filter === 'noredo') return !idxReannot(r);
   if (state.filter === 'changed') return rowHasChange(r);
   return s === state.filter;
 }
@@ -1541,20 +1681,21 @@ function prevVisibleIndex(from) {
 function renderList() {
   const ul = $('#list');
   ul.innerHTML = '';
+  const anno = state.mode === 'annotate';
   let done = 0;
   state.rows.forEach((r, idx) => {
-    if (rowStatus(r)) done++;
+    if (anno ? idxReannot(r) : rowStatus(r)) done++;
     if (!passesFilter(r)) return;
     const li = document.createElement('li');
     if (idx === state.index) li.classList.add('active');
-    const s = statusKey(rowStatus(r));
+    const s = anno ? (idxReannot(r) ? 'pass' : 'todo') : statusKey(rowStatus(r));
     const fn = extractFilename(r[state.imageColumn]);
-    const mark = hasIssues(r) ? ' <span class="issue-mark" title="数据问题">⚠</span>' : '';
-    const reMark = loadReannot(r.annotation_id) ? ' <span title="已重标" style="color:#2868f3;">✎</span>' : '';
+    const mark = (!anno && hasIssues(r)) ? ' <span class="issue-mark" title="数据问题">⚠</span>' : '';
+    const reMark = (!anno && idxReannot(r)) ? ' <span title="已重标" style="color:var(--primary);">✎</span>' : '';
     li.innerHTML = `<span class="st ${s}">${statusSym(s)}</span>
-      <span class="id">#${r.annotation_id}${mark}${reMark}</span>
-      <span class="fn" title="${fn}">${fn}</span>`;
-    li.addEventListener('click', () => selectIndex(idx));
+      <span class="id">#${escAttr(r.annotation_id)}${mark}${reMark}</span>
+      <span class="fn" title="${escAttr(fn)}">${escAttr(fn)}</span>`;
+    li.addEventListener('click', () => { selectIndex(idx); document.getElementById('app').classList.remove('drawer-open'); });
     ul.appendChild(li);
   });
   $('#progress').textContent = `${done} / ${state.rows.length}`;
@@ -1563,8 +1704,10 @@ function renderList() {
 const imgUrlCache = new Map(); // 文件名(小写) -> object URL,建一次复用;按住方向键也不吊销正在加载的图
 function selectIndex(idx) {
   if (idx < 0 || idx >= state.rows.length) return;
+  try { saveDraftCurrent(); } catch (e) {} // 翻页前把当前未保存改动落成草稿,避免 J/K 一翻就丢
   state.index = idx;
   state.edits = {};
+  state.activeField = null; // 每条重新从"第一个未填字段"作为数字键焦点
   renderList();
   saveSession();
   const r = state.rows[idx];
@@ -1573,6 +1716,7 @@ function selectIndex(idx) {
   $('#d-id').textContent = r.annotation_id;
   const fn = extractFilename(r[state.imageColumn]);
   $('#d-filename').textContent = fn;
+  { const xb = $('#exclude-btn'); if (xb) xb.textContent = idxExcluded(r) ? '↩ 恢复到本集 (E)' : '✗ 不属于本集 (E)'; }
   const status = review ? review.status : null;
   const badge = $('#d-status');
   badge.className = 'badge ' + (status || '');
@@ -1582,8 +1726,7 @@ function selectIndex(idx) {
   const file = state.imageMap.get(fnKey);
   const img = $('#d-img');
   if (file) {
-    let url = imgUrlCache.get(fnKey);
-    if (!url) { url = URL.createObjectURL(file); imgUrlCache.set(fnKey, url); }
+    const url = cacheImgUrl(fnKey, file);
     img.src = url;
     img.alt = fn;
     // 预取下一张,按住方向键连续切换更顺
@@ -1591,14 +1734,14 @@ function selectIndex(idx) {
     if (nx >= 0) {
       const nk = extractFilename(state.rows[nx][state.imageColumn]).toLowerCase();
       const nf = state.imageMap.get(nk);
-      if (nf && !imgUrlCache.has(nk)) imgUrlCache.set(nk, URL.createObjectURL(nf));
+      if (nf) cacheImgUrl(nk, nf);
     }
   } else {
     img.removeAttribute('src');
     img.alt = `图片不在选定文件夹: ${fn}`;
   }
 
-  if (state.mode === 'reannot') {
+  if (state.mode === 'reannot' || state.mode === 'annotate') {
     const ra = loadReannot(r.annotation_id);
     state.edits = ra ? { ...(ra.values || {}) } : {};
     $('#note').value = ra ? (ra.note || '') : '';
@@ -1617,7 +1760,7 @@ function selectIndex(idx) {
 function renderFields(r) {
   const fieldsEl = $('#fields');
   fieldsEl.innerHTML = '';
-  const blind = state.mode === 'reannot' && state.subMode === 'blind';
+  const blind = (state.mode === 'reannot' && state.subMode === 'blind') || state.mode === 'annotate';
   const baseVal = (k) => blind ? '' : (r[k] ?? '');
   const effective = (k) => k in state.edits ? state.edits[k] : baseVal(k);
 
@@ -1630,9 +1773,9 @@ function renderFields(r) {
     qa.style.marginBottom = '8px';
     qa.innerHTML = `<span class="label-text" style="color:#888;font-weight:normal;">快捷核对</span>
       <div class="quick-actions">
-        <button type="button" class="qa-pass${cur === 'pass' ? ' current' : ''}" title="通过(1)">✓</button>
-        <button type="button" class="qa-fail${cur === 'fail' ? ' current' : ''}" title="不通过(2)">✗</button>
-        <button type="button" class="qa-todo${!cur ? ' current' : ''}" title="清除标记">!</button>
+        <button type="button" class="qa-pass${cur === 'pass' ? ' current' : ''}" title="通过(1)" aria-label="通过" aria-pressed="${cur === 'pass'}">✓</button>
+        <button type="button" class="qa-fail${cur === 'fail' ? ' current' : ''}" title="不通过(2)" aria-label="不通过" aria-pressed="${cur === 'fail'}">✗</button>
+        <button type="button" class="qa-todo${!cur ? ' current' : ''}" title="清除标记" aria-label="清除标记" aria-pressed="${!cur}">!</button>
       </div>`;
     qa.querySelector('.qa-pass').addEventListener('click', () => saveReview('pass'));
     qa.querySelector('.qa-fail').addEventListener('click', () => saveReview('fail'));
@@ -1641,7 +1784,7 @@ function renderFields(r) {
   }
 
   // 对比原值(原数据 → 新数据最终值)
-  if ($('#compare-toggle') && $('#compare-toggle').checked) {
+  if (state.mode !== 'annotate' && $('#compare-toggle') && $('#compare-toggle').checked) {
     const box = document.createElement('div');
     box.className = 'compare-box';
     box.innerHTML = '<div class="compare-title">原数据 → 新数据(最终值)</div>' + diffRowFinal(r).map(d =>
@@ -1659,6 +1802,15 @@ function renderFields(r) {
     fieldsEl.appendChild(banner);
   }
 
+  const hotkeyMode = (state.mode === 'annotate' || state.mode === 'reannot');
+  if (hotkeyMode) {
+    const vf = visibleFieldsFor(r);
+    if (!state.activeField || !vf.some(f => f.key === state.activeField)) {
+      const firstEmpty = vf.find(f => { const v = effective(f.key); return !v || !String(v).trim(); });
+      state.activeField = (firstEmpty || vf[0] || {}).key;
+    }
+  }
+
   currentSchema().forEach(f => {
     if (f.visibleWhen) {
       const dep = effective(f.visibleWhen.field);
@@ -1667,6 +1819,8 @@ function renderFields(r) {
 
     const sec = document.createElement('div');
     sec.className = 'field-section';
+    const isActive = hotkeyMode && f.key === state.activeField;
+    if (isActive) sec.classList.add('active-field');
 
     const cur = effective(f.key);
     const orig = baseVal(f.key);
@@ -1694,36 +1848,14 @@ function renderFields(r) {
 
     const group = document.createElement('div');
     group.className = 'choice-group';
-    f.options.forEach(opt => {
+    f.options.forEach((opt, oi) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'choice-pill' + (f.type === 'multiple' ? ' multi' : '');
       if (selected.includes(opt.value)) btn.classList.add('active');
       btn.title = opt.hint;
-      btn.textContent = opt.value;
-      btn.addEventListener('click', () => {
-        let newSel;
-        if (f.type === 'single') {
-          newSel = selected.includes(opt.value) ? [] : [opt.value]; // 再点一次=取消选择(清空该项)
-        } else {
-          const isExc = f.exclusiveValue === opt.value;
-          const hasExc = selected.includes(f.exclusiveValue);
-          if (selected.includes(opt.value)) {
-            newSel = selected.filter(v => v !== opt.value);
-          } else if (isExc) {
-            newSel = [opt.value];
-          } else if (hasExc) {
-            newSel = selected.filter(v => v !== f.exclusiveValue).concat(opt.value);
-          } else {
-            newSel = selected.concat(opt.value);
-          }
-        }
-        const newValue = f.type === 'multiple' ? serializeMulti(newSel) : (newSel[0] || '');
-        const origValue = f.type === 'multiple' ? serializeMulti(origSel) : (origSel[0] || '');
-        if (newValue !== origValue) state.edits[f.key] = newValue;
-        else delete state.edits[f.key];
-        renderFields(r);
-      });
+      btn.textContent = (isActive && oi < 9) ? `${oi + 1}. ${opt.value}` : opt.value; // 活动字段显示数字键提示
+      btn.addEventListener('click', () => { state.activeField = f.key; applyChoice(r, f, opt.value); });
       group.appendChild(btn);
     });
     sec.appendChild(group);
@@ -1750,26 +1882,29 @@ function renderFields(r) {
     fieldsEl.appendChild(meta);
   }
 
-  // 上次核对信息
-  const review = loadReview(r.annotation_id);
-  const revmeta = document.createElement('div');
-  revmeta.className = 'field-meta';
-  revmeta.textContent = review
-    ? `上次核对: ${review.reviewer} · ${new Date(review.reviewed_at).toLocaleString()}`
-    : '尚未核对';
-  fieldsEl.appendChild(revmeta);
+  // 上次核对信息(标注模式没有"核对"概念,跳过)
+  if (state.mode !== 'annotate') {
+    const review = loadReview(r.annotation_id);
+    const revmeta = document.createElement('div');
+    revmeta.className = 'field-meta';
+    revmeta.textContent = review
+      ? `上次核对: ${review.reviewer} · ${new Date(review.reviewed_at).toLocaleString()}`
+      : '尚未核对';
+    fieldsEl.appendChild(revmeta);
+  }
 
   const ra = loadReannot(r.annotation_id);
   if (ra) {
     const ram = document.createElement('div');
     ram.className = 'field-meta';
-    ram.textContent = `上次重标: ${ra.annotator} · ${ra.mode === 'blind' ? '盲标' : '纠错'} · ${new Date(ra.annotated_at).toLocaleString()}`;
+    const raKind = ra.mode === 'annotate' ? '标注' : (ra.mode === 'blind' ? '盲标' : '纠错');
+    ram.textContent = `${state.mode === 'annotate' ? '上次标注' : '上次重标'}: ${ra.annotator} · ${raKind} · ${new Date(ra.annotated_at).toLocaleString()}`;
     fieldsEl.appendChild(ram);
   }
 }
 
 function escAttr(s) {
-  return String(s ?? '').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;');
+  return String(s ?? '').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll("'",'&#39;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 }
 
 function saveReview(status) {
@@ -1782,9 +1917,10 @@ function saveReview(status) {
     edits: state.edits,
     reviewed_at: new Date().toISOString(),
   };
-  localStorage.setItem(reviewKey(r.annotation_id), JSON.stringify(review));
+  if (!safeSet(reviewKey(r.annotation_id), JSON.stringify(review))) return; // 存满:不前进,草稿保留,提示导出
   clearDraft(r.annotation_id);
-  renderList();
+  state.edits = {}; // 防止 selectIndex 顶部的 saveDraftCurrent 把刚存的行又写回草稿
+  idxUpdate(r); // 只更新这一行的内存索引;selectIndex 会重渲列表(去掉重复 renderList)
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
   else selectIndex(state.index);
@@ -1796,7 +1932,7 @@ function unmarkReview() {
   const r = state.rows[state.index];
   localStorage.removeItem(reviewKey(r.annotation_id));
   state.edits = {};
-  renderList();
+  idxUpdate(r);
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
   else selectIndex(state.index);
@@ -1816,12 +1952,13 @@ function saveReannot() {
     if (v != null && String(v) !== '') values[f.key] = v;
   });
   const rec = {
-    annotator: state.reviewer, mode: state.subMode, values,
+    annotator: state.reviewer, mode: state.mode === 'annotate' ? 'annotate' : state.subMode, values,
     note: $('#note').value, annotated_at: new Date().toISOString(),
   };
-  localStorage.setItem(reannotKey(r.annotation_id), JSON.stringify(rec));
+  if (!safeSet(reannotKey(r.annotation_id), JSON.stringify(rec))) return; // 存满:不前进,草稿保留,提示导出
   clearDraft(r.annotation_id);
-  renderList();
+  state.edits = {}; // 防止 selectIndex 顶部的 saveDraftCurrent 把刚存的行又写回草稿
+  idxUpdate(r); // 只更新这一行的内存索引;selectIndex 会重渲列表(去掉重复 renderList)
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
   else selectIndex(state.index);
@@ -1844,6 +1981,7 @@ function exportMergedCSV(scope) {
   }
 
   rowsToExport.forEach(r => {
+    if (idxExcluded(r)) return; // 已排除(不属于本集)的图不进导出
     const inSample = sampleIdSet.has(String(r.annotation_id));
     const review = inSample ? loadReview(r.annotation_id) : null;
     const merged = { ...r };
@@ -1899,6 +2037,7 @@ function exportReannotCSV() {
   const lines = [header.map(csvQuote).join(',')];
   let cnt = 0;
   state.rows.forEach(r => {
+    if (idxExcluded(r)) return;
     const ra = loadReannot(r.annotation_id);
     if (!ra) return;
     cnt++;
@@ -1927,6 +2066,7 @@ function exportChangedOnlyCSV() {
   const lines = [header.map(csvQuote).join(',')];
   let cnt = 0;
   state.rows.forEach(r => {
+    if (idxExcluded(r)) return;
     const diffs = diffRowFinal(r);
     const changed = diffs.filter(d => d.changed);
     if (!changed.length) return;
@@ -1953,13 +2093,17 @@ function compareSummary() {
 
 function applyModeUI() {
   const isRe = state.mode === 'reannot';
+  const isAnno = state.mode === 'annotate';
   document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
   document.querySelectorAll('#submode-seg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.submode === state.subMode));
+  $('#mode-seg').style.display = isAnno ? 'none' : 'inline-flex';
   $('#submode-seg').style.display = isRe ? 'inline-flex' : 'none';
   $('#show-orig-wrap').style.display = (isRe && state.subMode === 'blind') ? 'inline-flex' : 'none';
-  document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.style.display = isRe ? 'none' : ''; });
-  $('#save-reannot').style.display = isRe ? '' : 'none';
-  $('#skip-reannot').style.display = isRe ? '' : 'none';
+  const cmp = $('#compare-toggle'); if (cmp && cmp.closest('label')) cmp.closest('label').style.display = isAnno ? 'none' : '';
+  document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.style.display = (isRe || isAnno) ? 'none' : ''; });
+  $('#save-reannot').style.display = (isRe || isAnno) ? '' : 'none';
+  $('#skip-reannot').style.display = (isRe || isAnno) ? '' : 'none';
+  $('#save-reannot').textContent = isAnno ? '保存标注 (Enter)' : '保存重标 (Enter)';
 }
 
 let _unloadBound = false;
@@ -2011,9 +2155,290 @@ function bindAppEvents() {
     else if (e.key === '1' && state.mode === 'review') saveReview('pass');
     else if (e.key === '2' && state.mode === 'review') saveReview('fail');
     else if (e.key === '3' && state.mode === 'review') saveReview('doubt');
-    else if (e.key === 'Enter' && state.mode === 'reannot') saveReannot();
+    else if (/^[1-9]$/.test(e.key) && (state.mode === 'annotate' || state.mode === 'reannot')) {
+      const r = state.rows[state.index]; if (!r) return;
+      const vf = visibleFieldsFor(r);
+      const f = vf.find(x => x.key === state.activeField) || vf[0];
+      if (f) { const opt = f.options[parseInt(e.key, 10) - 1]; if (opt) applyChoice(r, f, opt.value); }
+    }
+    else if (e.key === 'Enter' && (state.mode === 'reannot' || state.mode === 'annotate')) saveReannot();
+    else if (e.key === 'e' || e.key === 'E') excludeCurrent();
   });
 }
+
+// ========== 主题(浅 / 深 / 跟随系统) ==========
+function applyTheme(pref) {
+  const root = document.documentElement;
+  if (pref === 'light' || pref === 'dark') root.setAttribute('data-theme', pref);
+  else root.removeAttribute('data-theme'); // auto = 交给 prefers-color-scheme
+  document.querySelectorAll('#theme-toggle button').forEach(b => { const on = b.dataset.themePref === pref; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+}
+function initTheme() {
+  let pref = 'auto';
+  try { pref = localStorage.getItem('theme:pref') || 'auto'; } catch {}
+  applyTheme(pref);
+  document.querySelectorAll('#theme-toggle button').forEach(b => b.addEventListener('click', () => {
+    const p = b.dataset.themePref;
+    try { localStorage.setItem('theme:pref', p); } catch {}
+    applyTheme(p);
+  }));
+}
+initTheme();
+
+// ========== 无导入标注模式(只选图片,从零标注) ==========
+let annotateFolderName = '';
+const IMG_EXT = /\.(jpe?g|png|webp|gif|bmp|avif|jfif)$/i;
+function enterAnnotateMode() {
+  const imgs = [...state.imageMap.values()].filter(f => IMG_EXT.test(f.name || ''));
+  if (!imgs.length) { alert('没找到图片文件。先在「② 选图片文件夹」里选一个含图片的文件夹(不需要 CSV)。'); return; }
+  imgs.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  state.header = ['image'];
+  state.imageColumn = 'image';
+  state.rows = imgs.map((f, i) => ({ annotation_id: String(i + 1), image: f.name }));
+  state.fullRows = state.rows.slice();
+  state.totalRows = state.rows.length;
+  state.csvName = 'annotate:' + (annotateFolderName || ('imgs-' + state.rows.length));
+  state.reviewer = (reviewerInput.value || '').trim() || 'anonymous';
+  state.mode = 'annotate';
+  state.subMode = 'correct';
+  state.packMode = false;
+  state.autofix = {};
+  state.filter = 'all';
+  const sess = loadSession();
+  if (sess && sess.csvName === state.csvName) state._resume = sess;
+  initApp();
+}
+function initAnnotateApp() {
+  $('#csv-name').textContent = `📸 标注: ${annotateFolderName || ''} (${state.rows.length} 张)`;
+  $('#scope-info').textContent = `共 ${state.rows.length} 张 · 配置「${(state.config || {}).name || ''}」`;
+  $('#export-full-btn').style.display = 'none';
+  $('#autofix-bar').style.display = 'none';
+  const filt = $('#filter');
+  filt.innerHTML = '<option value="all">全部</option><option value="todo">未标</option><option value="done">已标</option>';
+  if (!['all', 'todo', 'done'].includes(state.filter)) state.filter = 'all';
+  filt.value = state.filter;
+  // 标注模式只保留"导出标注CSV",隐藏核对相关导出
+  ['[data-export]', '#export-reannot', '#export-changed', '#compare-summary'].forEach(sel =>
+    document.querySelectorAll(sel).forEach(b => { b.style.display = 'none'; }));
+  $('#export-annotate').style.display = '';
+  applyModeUI();
+  bindAppEvents();
+  buildIndex();
+  renderList();
+  let i = firstVisibleIndex();
+  if (state._resume && state._resume.lastAnnoId != null) {
+    const ri = state.rows.findIndex(x => String(x.annotation_id) === String(state._resume.lastAnnoId));
+    if (ri >= 0) { if (!passesFilter(state.rows[ri])) { state.filter = 'all'; filt.value = 'all'; renderList(); } i = ri; }
+  }
+  state._resume = null;
+  saveSession();
+  if (i >= 0) selectIndex(i); else if (state.rows.length) selectIndex(0);
+}
+// 导出标注:一图一行(image + 各字段 + 标注员 + 时间)
+function exportAnnotateCSV() {
+  const imgCol = (state.config && state.config.image_field) || 'image';
+  const keys = currentSchema().map(f => f.key);
+  const header = [imgCol, ...keys, '__annotator', '__annotated_at'];
+  const lines = [header.map(csvQuote).join(',')];
+  let cnt = 0;
+  state.rows.forEach(r => {
+    if (idxExcluded(r)) return;
+    const ra = loadReannot(r.annotation_id);
+    if (!ra) return;
+    cnt++;
+    const o = {}; o[imgCol] = r.image;
+    keys.forEach(k => { o[k] = (ra.values && k in ra.values) ? ra.values[k] : ''; });
+    o.__annotator = ra.annotator || '';
+    o.__annotated_at = ra.annotated_at || '';
+    lines.push(header.map(h => csvQuote(o[h] ?? '')).join(','));
+  });
+  if (!cnt) { alert('还没有已保存的标注'); return; }
+  downloadFile(`annotate-${(annotateFolderName || 'images').replace(/[:\\/]/g, '_')}-${new Date().toISOString().slice(0,10)}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+{ const _ab = $('#annotate-btn'); if (_ab) _ab.addEventListener('click', enterAnnotateMode); }
+{ const _ea = $('#export-annotate'); if (_ea) _ea.addEventListener('click', exportAnnotateCSV); }
+
+// ========== 删除/排除图片(不属于本数据集;软排除,不动磁盘原图) ==========
+function excludeCurrent() {
+  if (state.index < 0) return;
+  const r = state.rows[state.index];
+  const id = r.annotation_id;
+  if (loadExcluded(id)) localStorage.removeItem(excludeKey(id));
+  else if (!safeSet(excludeKey(id), JSON.stringify({ by: state.reviewer, at: new Date().toISOString() }))) return;
+  idxUpdate(r);
+  renderList();
+  if (passesFilter(r)) { selectIndex(state.index); }            // 恢复后(或正看「已排除」)留在原地刷新
+  else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); }
+}
+{ const _x = $('#exclude-btn'); if (_x) _x.addEventListener('click', excludeCurrent); }
+
+// ========== 移动端:侧栏抽屉开合 ==========
+{ const _st = document.getElementById('sidebar-toggle'); if (_st) _st.addEventListener('click', () => { const a = document.getElementById('app'); if (a) a.classList.toggle('drawer-open'); }); }
+document.addEventListener('click', (e) => {
+  const a = document.getElementById('app');
+  if (!a || !a.classList.contains('drawer-open')) return;
+  if (e.target.closest('.sidebar') || e.target.closest('#sidebar-toggle')) return;
+  a.classList.remove('drawer-open'); // 点抽屉外的暗区/主区 → 收起
+}, true);
+
+// ========== P0 数据安全:存储配额安全写 ==========
+function showStorageBanner(msg) {
+  let b = document.getElementById('storage-full-bar');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'storage-full-bar';
+    b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:1001;background:#b32a30;color:#fff;padding:10px 14px;font-size:13px;text-align:center;box-shadow:0 -2px 8px rgba(0,0,0,.3);line-height:1.6;';
+    document.body.appendChild(b);
+  }
+  b.innerHTML = msg + ' <button id="sf-exp" style="margin-left:8px;padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-weight:600;">导出备份</button> <button id="sf-x" style="margin-left:6px;background:none;border:1px solid #fff;color:#fff;border-radius:4px;cursor:pointer;padding:3px 8px;">关闭</button>';
+  b.querySelector('#sf-exp').onclick = () => { try { exportProgress(); } catch (e) {} };
+  b.querySelector('#sf-x').onclick = () => b.remove();
+}
+function safeSet(key, val) {
+  try { localStorage.setItem(key, val); return true; }
+  catch (e) { showStorageBanner('⛔ 浏览器存储已满 — 刚才这步可能<b>没存上</b>,请立刻导出备份、清理后再继续。'); return false; }
+}
+function localStorageBytes() {
+  let n = 0;
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (k.length + (localStorage.getItem(k) || '').length); }
+  return n * 2; // UTF-16 近似字节
+}
+try { if (localStorageBytes() > 4 * 1024 * 1024) showStorageBanner('⚠ 浏览器存储已用超 ~80%,建议尽快导出备份并清理旧任务。'); } catch (e) {}
+
+// 重复 annotation_id 会让多行共用同一 localStorage 键、互相覆盖 → 检测+隔离+告警
+function ensureUniqueIds(rows) {
+  const seen = new Set(); let dups = 0;
+  rows.forEach((r, i) => {
+    if (!r.annotation_id) r.annotation_id = String(i + 1);
+    let id = String(r.annotation_id);
+    if (seen.has(id)) { dups++; let id2 = id + '·' + i; while (seen.has(id2)) id2 += '·x'; id = id2; r.annotation_id = id; }
+    seen.add(id);
+  });
+  if (dups) showDupBanner(dups); else { const b = document.getElementById('dup-id-bar'); if (b) b.remove(); }
+  return dups;
+}
+function showDupBanner(n) {
+  let b = document.getElementById('dup-id-bar');
+  if (!b) { b = document.createElement('div'); b.id = 'dup-id-bar'; b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:1001;background:#8a6200;color:#fff;padding:8px 14px;font-size:13px;text-align:center;line-height:1.6;'; document.body.appendChild(b); }
+  b.innerHTML = `⚠ 检测到 <b>${n}</b> 个重复 annotation_id(会让多行共用进度键、互相覆盖),已临时加后缀隔离;建议修复源 CSV 的 ID 列。 <button id="dup-x" style="margin-left:8px;background:none;border:1px solid #fff;color:#fff;border-radius:4px;cursor:pointer;padding:2px 8px;">知道了</button>`;
+  b.querySelector('#dup-x').onclick = () => b.remove();
+}
+
+// ========== P1 内存状态索引(避免每次渲染都 O(N) 读 localStorage) ==========
+function excludeKey(id) { return `excluded:${state.csvName}:${id}`; }
+function loadExcluded(id) { return !!localStorage.getItem(excludeKey(id)); }
+function idxUpdate(r) {
+  if (!state.idx) state.idx = new Map();
+  const id = r.annotation_id;
+  const anno = state.mode === 'annotate';
+  const rev = anno ? null : loadReview(id);
+  state.idx.set(id, {
+    status: rev ? rev.status : null,
+    reannot: !!loadReannot(id),
+    issues: anno ? false : validateRow(r, rev ? (rev.edits || {}) : {}).length > 0,
+    excluded: loadExcluded(id),
+  });
+}
+function buildIndex() { state.idx = new Map(); state.rows.forEach(r => idxUpdate(r)); }
+function idxOf(r) { return state.idx ? state.idx.get(r.annotation_id) : null; }
+function idxReannot(r) { const e = idxOf(r); return e ? e.reannot : !!loadReannot(r.annotation_id); }
+function idxExcluded(r) { const e = idxOf(r); return e ? e.excluded : loadExcluded(r.annotation_id); }
+// 图片 object-URL LRU(长会话避免内存暴涨/崩页)
+function cacheImgUrl(key, file) {
+  let url = imgUrlCache.get(key);
+  if (url) { imgUrlCache.delete(key); imgUrlCache.set(key, url); return url; }
+  url = URL.createObjectURL(file);
+  imgUrlCache.set(key, url);
+  while (imgUrlCache.size > 50) {
+    const oldest = imgUrlCache.keys().next().value;
+    const ou = imgUrlCache.get(oldest);
+    imgUrlCache.delete(oldest);
+    try { URL.revokeObjectURL(ou); } catch (e) {}
+  }
+  return url;
+}
+
+// ========== P1 标注吞吐:数字键直选选项(annotate / reannot) ==========
+function visibleFieldsFor(r) {
+  const blind = (state.mode === 'reannot' && state.subMode === 'blind') || state.mode === 'annotate';
+  const eff = (k) => k in state.edits ? state.edits[k] : (blind ? '' : (r[k] ?? ''));
+  return currentSchema().filter(f => !f.visibleWhen || eff(f.visibleWhen.field) === f.visibleWhen.value);
+}
+function advanceActiveField(r, key) {
+  const vf = visibleFieldsFor(r);
+  const i = vf.findIndex(f => f.key === key);
+  if (i >= 0 && i + 1 < vf.length) state.activeField = vf[i + 1].key;
+}
+function applyChoice(r, f, optValue) {
+  const blind = (state.mode === 'reannot' && state.subMode === 'blind') || state.mode === 'annotate';
+  const baseVal = (k) => blind ? '' : (r[k] ?? '');
+  const cur = (f.key in state.edits) ? state.edits[f.key] : baseVal(f.key);
+  const orig = baseVal(f.key);
+  const selected = f.type === 'multiple' ? parseMulti(cur) : (cur ? [String(cur)] : []);
+  const origSel = f.type === 'multiple' ? parseMulti(orig) : (orig ? [String(orig)] : []);
+  let newSel;
+  if (f.type === 'single') {
+    newSel = selected.includes(optValue) ? [] : [optValue];
+  } else {
+    const isExc = f.exclusiveValue === optValue;
+    const hasExc = selected.includes(f.exclusiveValue);
+    if (selected.includes(optValue)) newSel = selected.filter(v => v !== optValue);
+    else if (isExc) newSel = [optValue];
+    else if (hasExc) newSel = selected.filter(v => v !== f.exclusiveValue).concat(optValue);
+    else newSel = selected.concat(optValue);
+  }
+  const newValue = f.type === 'multiple' ? serializeMulti(newSel) : (newSel[0] || '');
+  const origValue = f.type === 'multiple' ? serializeMulti(origSel) : (origSel[0] || '');
+  if (newValue !== origValue) state.edits[f.key] = newValue; else delete state.edits[f.key];
+  if (f.type === 'single' && newSel.length) advanceActiveField(r, f.key); // 单选自动跳到下一个字段
+  renderFields(r);
+}
+
+// ========== P2 互通:导出 Label Studio 可导入 JSON ==========
+function exportLSJSON() {
+  const imgField = (state.config && state.config.image_field) || 'image';
+  const schema = currentSchema();
+  const anno = state.mode === 'annotate';
+  const tasks = [];
+  state.rows.forEach(r => {
+    if (idxExcluded(r)) return;
+    const ra = anno ? loadReannot(r.annotation_id) : null;
+    if (anno && !ra) return; // annotate 模式只导已标
+    const valOf = (k) => anno ? (ra && ra.values && k in ra.values ? ra.values[k] : '') : finalVal(r, k);
+    const result = [];
+    schema.forEach(f => {
+      const v = valOf(f.key);
+      if (v == null || String(v) === '') return;
+      if (f.type === 'multiple') result.push({ from_name: f.key, to_name: 'image', type: 'choices', value: { choices: parseMulti(v) } });
+      else if (f.type === 'text') result.push({ from_name: f.key, to_name: 'image', type: 'textarea', value: { text: [String(v)] } });
+      else result.push({ from_name: f.key, to_name: 'image', type: 'choices', value: { choices: [String(v)] } });
+    });
+    if (!result.length) return;
+    const data = {}; data[imgField] = extractFilename(r[state.imageColumn]);
+    tasks.push({ data, predictions: [{ model_version: 'datareviewer', result }] });
+  });
+  if (!tasks.length) { alert('没有可导出的标注'); return; }
+  downloadJSON(`ls-import-${(state.csvName || 'data').replace(/[:\\/]/g, '_')}-${new Date().toISOString().slice(0, 10)}.json`, tasks);
+}
+{ const _lj = $('#export-lsjson'); if (_lj) _lj.addEventListener('click', exportLSJSON); }
+
+// ========== P2 体验:灯箱滚轮缩放 + 拖拽 + Esc 关闭 ==========
+(function setupLightboxZoom() {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lb-img');
+  if (!lb || !img) return;
+  let scale = 1, tx = 0, ty = 0, drag = false, sx = 0, sy = 0, moved = false;
+  const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; img.style.cursor = scale > 1 ? 'grab' : 'zoom-out'; };
+  const reset = () => { scale = 1; tx = 0; ty = 0; moved = false; apply(); };
+  new MutationObserver(() => { if (lb.classList.contains('show')) reset(); }).observe(lb, { attributes: true, attributeFilter: ['class'] });
+  lb.addEventListener('wheel', (e) => { e.preventDefault(); const d = e.deltaY < 0 ? 1.15 : 1 / 1.15; scale = Math.min(8, Math.max(1, scale * d)); if (scale === 1) { tx = 0; ty = 0; } apply(); }, { passive: false });
+  img.addEventListener('mousedown', (e) => { if (scale <= 1) return; drag = true; moved = false; sx = e.clientX - tx; sy = e.clientY - ty; img.style.cursor = 'grabbing'; e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => { if (!drag) return; tx = e.clientX - sx; ty = e.clientY - sy; moved = true; apply(); });
+  window.addEventListener('mouseup', () => { drag = false; if (scale > 1) img.style.cursor = 'grab'; });
+  img.addEventListener('dblclick', (e) => { e.stopPropagation(); scale = scale > 1 ? 1 : 2; if (scale === 1) { tx = 0; ty = 0; } apply(); });
+  lb.addEventListener('click', (e) => { if (scale > 1 || moved) { e.stopPropagation(); moved = false; } }, true); // 缩放/拖动后点击不关闭
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lb.classList.contains('show')) lb.classList.remove('show'); });
+})();
 </script>
 </body>
 </html>
