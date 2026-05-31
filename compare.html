@@ -287,100 +287,86 @@ function loadInto(idx, name, text){
 
 function loadedFiles(){ return S.files.filter(f=>f.loaded); }
 
-function commonHeaders(){
-  if(!S.old||!S.neu) return [];
-  const a=new Set(S.old.header);
-  return S.neu.header.filter(h=>a.has(h));
+function afterFilesChanged(){
+  renderSlots();
+  refreshKeyOptions();
 }
+
 function refreshKeyOptions(){
   const sel=$('#key-select');
-  if(!S.old||!S.neu){ sel.disabled=true; return; }
-  const common=commonHeaders();
+  const files=loadedFiles();
+  if(files.length<2){ sel.disabled=true; sel.innerHTML='<option>先选至少两份 CSV</option>'; $('#result-card').style.display='none'; $('#col-note').textContent=''; return; }
+  const common=headerIntersection(files);
   if(!common.length){
-    sel.innerHTML='<option>两份没有同名列,无法按键对齐</option>'; sel.disabled=true;
-    $('#col-note').textContent='⚠ 两份 CSV 没有任何同名列,无法对齐。请检查表头。';
-    return;
+    sel.disabled=true; sel.innerHTML='<option>这些 CSV 没有公共列,无法对齐</option>';
+    $('#col-note').textContent='⚠ 已载入的 CSV 没有任何同名列,无法对齐。请检查表头。';
+    $('#result-card').style.display='none'; return;
   }
   sel.disabled=false;
   const prev=S.keyCol;
-  const def = (prev && common.includes(prev)) ? prev : (common.includes('annotation_id')?'annotation_id':common[0]);
-  sel.innerHTML = common.map(h=>`<option value="${esc(h)}"${h===def?' selected':''}>${esc(h)}</option>`).join('');
-  S.keyCol = def;
+  const def=(prev&&common.includes(prev))?prev:(common.includes('annotation_id')?'annotation_id':common[0]);
+  sel.innerHTML=common.map(h=>`<option value="${esc(h)}"${h===def?' selected':''}>${esc(h)}</option>`).join('');
+  S.keyCol=def;
   compare();
 }
 
-function buildMap(file, keyCol){
-  const m=new Map(); let dup=0;
-  file.rows.forEach(r=>{ const k=String(r[keyCol]??''); if(m.has(k)){dup++;return;} m.set(k,r); });
-  return {map:m, dup};
-}
-
 function compare(){
-  if(!S.old||!S.neu||!S.keyCol) return;
-  const keyCol=S.keyCol;
-  const common=commonHeaders();
-  const fields=common.filter(h=>h!==keyCol);
-  const oldM=buildMap(S.old,keyCol), newM=buildMap(S.neu,keyCol);
-  const onlyOldCols=S.old.header.filter(h=>!new Set(S.neu.header).has(h));
-  const onlyNewCols=S.neu.header.filter(h=>!new Set(S.old.header).has(h));
-
-  const rows=[]; let chg=0,add=0,del=0,same=0;
-  const seenKeys=new Set();
-  S.old.rows.forEach(or=>{
-    const k=String(or[keyCol]??''); if(seenKeys.has(k))return; seenKeys.add(k);
-    if(newM.map.has(k)){
-      const nr=newM.map.get(k); const cells={}; let changed=false;
-      fields.forEach(f=>{ const ov=String(or[f]??''), nv=String(nr[f]??''); const ch=ov!==nv; if(ch)changed=true; cells[f]={old:ov,new:nv,changed:ch}; });
-      rows.push({key:k,status:changed?'changed':'same',cells}); changed?chg++:same++;
-    } else {
-      const cells={}; fields.forEach(f=>{cells[f]={old:String(or[f]??''),new:'',changed:false};});
-      rows.push({key:k,status:'removed',cells}); del++;
-    }
-  });
-  S.neu.rows.forEach(nr=>{
-    const k=String(nr[keyCol]??''); if(seenKeys.has(k))return; seenKeys.add(k);
-    const cells={}; fields.forEach(f=>{cells[f]={old:'',new:String(nr[f]??''),changed:false};});
-    rows.push({key:k,status:'added',cells}); add++;
-  });
-  const order={changed:0,added:1,removed:2,same:3};
-  rows.sort((a,b)=> order[a.status]-order[b.status]);
-
-  S.diff={keyCol,fields,rows,counts:{chg,add,del,same},dup:oldM.dup+newM.dup,onlyOldCols,onlyNewCols};
+  const files=loadedFiles();
+  if(files.length<2||!S.keyCol) return;
+  S.diff=computeNwayDiff(files, S.keyCol);
   render();
 }
 
 function render(){
   const d=S.diff; if(!d) return;
   $('#result-card').style.display='';
+  const n=d.labels.length;
   $('#summary').innerHTML =
-    `<span class="pill chg">改动 ${d.counts.chg}</span>`+
-    `<span class="pill add">新增 ${d.counts.add}</span>`+
-    `<span class="pill del">删除 ${d.counts.del}</span>`+
-    `<span class="pill same">相同 ${d.counts.same}</span>`+
-    `<span class="muted">键列:<b>${esc(d.keyCol)}</b> · 对比 ${d.fields.length} 个公共字段</span>`;
+    `<span class="pill chg">分歧 ${d.counts.diff}</span>`+
+    `<span class="pill same">一致 ${d.counts.agree}</span>`+
+    `<span class="muted">键列:<b>${esc(d.keyCol)}</b> · ${n} 份 · 对比 ${d.fields.length} 个公共字段</span>`;
   let note='';
-  if(d.onlyOldCols.length) note+=`仅旧有的列(对比忽略):${d.onlyOldCols.map(esc).join(', ')}。 `;
-  if(d.onlyNewCols.length) note+=`仅新有的列(对比忽略):${d.onlyNewCols.map(esc).join(', ')}。 `;
+  if(d.onlySomeCols.length) note+=`仅部分文件有的列(对比忽略):${d.onlySomeCols.map(esc).join(', ')}。 `;
   if(d.dup) note+=`⚠ 有 ${d.dup} 个重复键,仅保留首次出现。`;
   $('#col-note').innerHTML=note;
 
   const diffOnly=$('#diff-only').checked;
   const thead=$('#diff-table thead'), tbody=$('#diff-table tbody');
-  thead.innerHTML='<tr><th>'+esc(d.keyCol)+'</th><th>状态</th>'+d.fields.map(f=>'<th>'+esc(f)+'</th>').join('')+'</tr>';
-  const badge={changed:'<span class="badge chg">改动</span>',added:'<span class="badge add">新增</span>',removed:'<span class="badge del">删除</span>',same:'<span class="badge same">相同</span>'};
+
+  // two-level header: each field spans n value cols + 1 consensus col
+  let h1='<tr><th rowspan="2">'+esc(d.keyCol)+'</th><th rowspan="2">状态</th>';
+  let h2='<tr>';
+  d.fields.forEach(f=>{
+    h1+='<th colspan="'+(n+1)+'" style="text-align:center;border-left:2px solid var(--border);">'+esc(f)+'</th>';
+    d.labels.forEach((lb,i)=>{ h2+='<th'+(i===0?' style="border-left:2px solid var(--border);"':'')+'>'+esc(lb)+'</th>'; });
+    h2+='<th class="muted">共识</th>';
+  });
+  h1+='</tr>'; h2+='</tr>';
+  thead.innerHTML=h1+h2;
+
   let shown=0;
-  const html=d.rows.filter(r=>!(diffOnly&&r.status==='same')).map(r=>{
+  const rowsHtml=d.rows.filter(r=>!(diffOnly&&r.status==='agree')).map(r=>{
     shown++;
+    const statusBadge = r.status==='agree'
+      ? '<span class="badge same">一致</span>'
+      : '<span class="badge chg">分歧</span>'+(r.missingIn.length?'<span class="muted" style="font-size:11px;"> 缺 '+r.missingIn.map(esc).join(',')+'</span>':'');
     const tds=d.fields.map(f=>{
       const c=r.cells[f];
-      if(r.status==='added') return '<td>'+(c.new?'<span class="new">'+esc(c.new)+'</span>':'<span class="muted">∅</span>')+'</td>';
-      if(r.status==='removed') return '<td>'+(c.old?'<span class="old">'+esc(c.old)+'</span>':'<span class="muted">∅</span>')+'</td>';
-      if(c.changed) return '<td class="changed"><span class="old">'+(esc(c.old)||'∅')+'</span><span class="arrow">→</span><span class="new">'+(esc(c.new)||'∅')+'</span></td>';
-      return '<td>'+esc(c.new)+'</td>';
+      const cellHtml=c.values.map((v,i)=>{
+        const edge=i===0?' style="border-left:2px solid var(--border);"':'';
+        if(!v.present) return '<td'+edge+'><span class="muted">∅</span></td>';
+        if(v.outlier) return '<td class="changed"'+edge+'><span class="new">'+esc(v.value)+'</span></td>';
+        return '<td'+edge+'>'+esc(v.value)+'</td>';
+      }).join('');
+      const cons = c.majority!==null
+        ? '<td class="muted">'+esc(c.majority)+(c.agree?' <span style="font-size:11px;">('+esc(c.agree)+')</span>':'')+'</td>'
+        : '<td class="muted">—'+(c.agree?' <span style="font-size:11px;">('+esc(c.agree)+')</span>':'')+'</td>';
+      return cellHtml+cons;
     }).join('');
-    return `<tr class="r-${r.status==='changed'?'chg':r.status==='added'?'add':r.status==='removed'?'del':'same'}"><td class="key">${esc(r.key)}</td><td>${badge[r.status]}</td>${tds}</tr>`;
+    return `<tr class="r-${r.status==='agree'?'same':'chg'}"><td class="key">${esc(r.key)}</td><td>${statusBadge}</td>${tds}</tr>`;
   }).join('');
-  tbody.innerHTML = html || '<tr><td class="empty" colspan="'+(d.fields.length+2)+'">没有符合当前过滤的行</td></tr>';
+  const totalCols=2+d.fields.length*(n+1);
+  tbody.innerHTML = rowsHtml || '<tr><td class="empty" colspan="'+totalCols+'">没有符合当前过滤的行</td></tr>';
   $('#shown-count').textContent = `显示 ${shown} / ${d.rows.length} 行`;
 }
 
