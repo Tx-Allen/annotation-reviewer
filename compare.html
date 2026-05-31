@@ -159,7 +159,11 @@ function headerExtras(files, common){
   files.forEach(f=>f.header.forEach(h=>{ if(!inCommon.has(h)&&!seen.has(h)){seen.add(h);extras.push(h);} }));
   return extras;
 }
-function buildIndex(){}
+function buildIndex(file, keyCol){
+  const map=new Map(); let dup=0;
+  file.rows.forEach(r=>{ const k=String(r[keyCol]??''); if(map.has(k)){dup++;return;} map.set(k,r); });
+  return { map, dup };
+}
 function majorityOf(){}
 function computeNwayDiff(){}
 // ↓↓↓ collector MUST stay last; lists every pure fn the tests use ↓↓↓

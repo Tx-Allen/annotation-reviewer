@@ -29,3 +29,16 @@ test('headerExtras de-dupes an extra column shared by multiple files', () => {
   const common = core.headerIntersection(files); // ['id','label']
   assert.deepEqual(core.headerExtras(files, common), ['note', 'extra']);
 });
+
+test('buildIndex maps key->row, first occurrence wins, counts duplicates', () => {
+  const file = { rows: [
+    { id: 'a', v: '1' },
+    { id: 'b', v: '2' },
+    { id: 'a', v: '99' }, // duplicate key -> skipped, counted
+  ]};
+  const { map, dup } = core.buildIndex(file, 'id');
+  assert.equal(dup, 1);
+  assert.equal(map.get('a').v, '1');
+  assert.equal(map.get('b').v, '2');
+  assert.equal(map.size, 2);
+});
