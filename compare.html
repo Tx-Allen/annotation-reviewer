@@ -74,23 +74,16 @@ td.changed{background:var(--chg-bg);}
 <div class="wrap">
   <div class="card">
     <h1>CSV 横向对比</h1>
-    <div class="hint">传两份 CSV(旧 / 新),按键列对齐,逐字段横向对比、高亮改动、分出新增/删除行。纯本地,数据不上传。 · <a href="index.html">← 回核对/标注工具</a></div>
-    <div class="row">
+    <div class="hint">传两份或多份 CSV,按键列对齐,逐字段横向并排、按多数票高亮离群、分出一致/分歧。纯本地,数据不上传。 · <a href="index.html">← 回核对/标注工具</a></div>
+    <div id="inputs"></div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn-link" id="add-file">＋ 添加 CSV</button>
       <div class="field">
-        <label>① 旧 CSV(基准)</label>
-        <input type="file" id="old-input" accept=".csv,.tsv,text/csv">
-        <div id="old-status" class="status"></div>
-      </div>
-      <div class="field">
-        <label>② 新 CSV(对比对象)</label>
-        <input type="file" id="new-input" accept=".csv,.tsv,text/csv">
-        <div id="new-status" class="status"></div>
-      </div>
-      <div class="field">
-        <label>③ 对齐键列</label>
-        <select id="key-select" disabled><option>先选两份 CSV</option></select>
+        <label>对齐键列</label>
+        <select id="key-select" disabled><option>先选至少两份 CSV</option></select>
       </div>
     </div>
+    <div id="cap-note" class="col-note"></div>
     <div id="col-note" class="col-note"></div>
   </div>
 
@@ -246,18 +239,53 @@ function applyTheme(pref){
 })();
 
 // ===== 状态 =====
-const S = { old:null, neu:null, keyCol:'', diff:null };
+const S = { files: [], keyCol: '', diff: null };
+const SOFT_CAP = 8;
+let slotSeq = 0;
 
-function loadFile(file, slot){
-  const stat = $(slot==='old' ? '#old-status' : '#new-status');
-  const text = file._text;
-  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, file.name)));
-  const warn = lastCsvWarnings.length ? ' · ⚠ '+lastCsvWarnings.join(';') : '';
-  S[slot==='old'?'old':'neu'] = { name:file.name, header:parsed.header, rows:parsed.rows };
-  stat.textContent = `✓ ${file.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列${warn}`;
-  stat.className = 'status ok';
-  refreshKeyOptions();
+function labelFor(i){ return '文件' + (i + 1); }
+
+function renderSlots(){
+  const host = $('#inputs');
+  host.innerHTML = '';
+  S.files.forEach((file, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    wrap.style.cssText = 'display:inline-flex;margin-right:18px;';
+    wrap.innerHTML =
+      `<label>${esc(labelFor(i))}${S.files.length>2?` <button class="btn-link rm" data-i="${i}" style="font-size:11px;">×移除</button>`:''}</label>`+
+      `<input type="file" accept=".csv,.tsv,text/csv" data-i="${i}">`+
+      `<div class="status${file.loaded?' ok':''}" data-status="${i}">${file.loaded?esc('✓ '+file.name+' · '+file.rows.length+' 行 · '+file.header.length+' 列'+(file.warn||'')):''}</div>`;
+    host.appendChild(wrap);
+  });
+  host.querySelectorAll('input[type=file]').forEach(inp=>{
+    inp.addEventListener('change', async e=>{
+      const idx=+e.target.dataset.i, file=e.target.files[0]; if(!file) return;
+      const text=await file.text();
+      loadInto(idx, file.name, text);
+      e.target.value='';
+    });
+  });
+  host.querySelectorAll('button.rm').forEach(b=>{
+    b.addEventListener('click', ()=>{ S.files.splice(+b.dataset.i,1); afterFilesChanged(); });
+  });
+  const cap=$('#cap-note');
+  cap.textContent = S.files.length>SOFT_CAP ? `已加 ${S.files.length} 份,并排列会变窄(建议 ≤ ${SOFT_CAP})。` : '';
 }
+
+function addSlot(){
+  S.files.push({ id:'f'+(++slotSeq), label:labelFor(S.files.length), name:null, header:[], rows:[], loaded:false, warn:'' });
+  renderSlots();
+}
+
+function loadInto(idx, name, text){
+  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, name)));
+  const warn = lastCsvWarnings.length ? ' · ⚠ '+lastCsvWarnings.join(';') : '';
+  S.files[idx] = { ...S.files[idx], name, header:parsed.header, rows:parsed.rows, loaded:true, warn, label:labelFor(idx) };
+  afterFilesChanged();
+}
+
+function loadedFiles(){ return S.files.filter(f=>f.loaded); }
 
 function commonHeaders(){
   if(!S.old||!S.neu) return [];
