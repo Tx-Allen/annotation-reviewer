@@ -189,7 +189,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
 .img-wrap { background: var(--img-bg); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-.img-wrap img { width: 100%; flex: 1; min-height: 0; object-fit: contain; cursor: zoom-in; }
+.img-wrap img { max-width: 100%; max-height: 100%; width: auto; height: auto; flex: 0 1 auto; min-height: 0; object-fit: contain; cursor: zoom-in; }
 .img-hint { color: var(--text-faint); font-size: 11px; padding: 6px 0; text-align: center; }
 
 .fields { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; overflow-y: auto; }
@@ -300,10 +300,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
   </div>
 
   <div class="pack-entry">
-    <span>📦 收到管理员发的任务包?直接导入,跳过下面所有步骤。</span>
+    <span>📦 收到管理员发的任务包?直接导入,跳过下面所有步骤。<br><small style="color:var(--text-faint);">支持 .zip(自带图片,免选文件夹)或 .json(图片需另选)。</small></span>
     <label class="file-btn">
-      导入任务包
-      <input type="file" id="pack-input" accept=".json" style="display:none">
+      导入任务包 (.zip/.json)
+      <input type="file" id="pack-input" accept=".json,.zip" style="display:none">
     </label>
   </div>
 
@@ -609,6 +609,75 @@ function downloadJSON(name, obj) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function downloadBlob(name, blob) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function rowsToCSV(header, rows) {
+  const lines = [header.map(csvQuote).join(',')];
+  rows.forEach(r => lines.push(header.map(h => csvQuote(r[h] ?? '')).join(',')));
+  return lines.join('\n');
+}
+// ===== 极简 ZIP(STORE 不压缩——图片本就压过;零依赖。读支持 STORE + DEFLATE via DecompressionStream) =====
+function crc32(buf) {
+  let table = crc32._t;
+  if (!table) { table = crc32._t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0; } }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ table[(crc ^ buf[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function makeZip(files) { // files: [{name, data:Uint8Array}]
+  const enc = new TextEncoder();
+  const u16 = n => [n & 0xFF, (n >> 8) & 0xFF];
+  const u32 = n => [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >>> 24) & 0xFF];
+  const parts = [], central = []; let offset = 0;
+  for (const f of files) {
+    const nm = enc.encode(f.name), data = f.data, crc = crc32(data);
+    const local = [0x50, 0x4b, 0x03, 0x04, ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nm.length), ...u16(0)];
+    parts.push(new Uint8Array(local), nm, data);
+    central.push({ nm, crc, size: data.length, offset });
+    offset += local.length + nm.length + data.length;
+  }
+  const cdStart = offset, cd = [];
+  for (const c of central) {
+    const h = [0x50, 0x4b, 0x01, 0x02, ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(c.crc), ...u32(c.size), ...u32(c.size), ...u16(c.nm.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(c.offset)];
+    cd.push(new Uint8Array(h), c.nm); offset += h.length + c.nm.length;
+  }
+  const end = new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(central.length), ...u16(central.length), ...u32(offset - cdStart), ...u32(cdStart), ...u16(0)]);
+  return new Blob([...parts, ...cd, end], { type: 'application/zip' });
+}
+async function readZip(buf) { // ArrayBuffer -> [{name, data:Uint8Array}]
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0; i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  if (eocd < 0) throw new Error('不是有效的 zip 文件');
+  const count = dv.getUint16(eocd + 10, true); let off = dv.getUint32(eocd + 16, true);
+  const ents = [];
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true), compSize = dv.getUint32(off + 20, true);
+    const nameLen = dv.getUint16(off + 28, true), extraLen = dv.getUint16(off + 30, true), commentLen = dv.getUint16(off + 32, true);
+    const localOff = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nameLen));
+    ents.push({ name, method, compSize, localOff });
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  const out = [];
+  for (const e of ents) {
+    if (e.name.endsWith('/')) continue;
+    const lnameLen = dv.getUint16(e.localOff + 26, true), lextraLen = dv.getUint16(e.localOff + 28, true);
+    const start = e.localOff + 30 + lnameLen + lextraLen;
+    const comp = u8.subarray(start, start + e.compSize);
+    let data;
+    if (e.method === 0) data = comp;
+    else if (e.method === 8) {
+      if (typeof DecompressionStream === 'undefined') throw new Error('此浏览器不支持解压 zip(请用 Chrome/Edge,或改用 JSON 任务包)');
+      data = new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    } else throw new Error('不支持的 zip 压缩方式: ' + e.method);
+    out.push({ name: e.name, data });
+  }
+  return out;
 }
 
 // ========== 种子随机 ==========
@@ -1319,26 +1388,41 @@ $('#dist-go').addEventListener('click', () => {
 
   const now = new Date().toISOString();
   const adminName = reviewerInput.value.trim() || 'admin';
-  names.forEach((name, i) => {
-    const pack = {
-      version: 1,
-      kind: 'reviewer-pack',
-      config: state.config,
-      csv_name: pendingCSV.name,
-      image_column: $('#col-input').value || 'image',
-      reviewer: name,
-      header: pendingCSV.header,
-      sample_rows: chunks[i],
-      total_csv_rows: pendingCSV.rows.length,
-      seed: seed || null,
-      created_by: adminName,
-      created_at: now,
-    };
-    const safeName = name.replace(/[^\w一-龥-]/g, '_');
-    downloadJSON(`pack-${safeName}.json`, pack);
-  });
+  const imgCol = $('#col-input').value || 'image';
+  const haveImages = state.imageMap.size > 0;
   $('#distribute-modal').classList.remove('show');
-  alert(`已生成 ${names.length} 个任务包。把每个 JSON 发给对应的检察员,记得另外发图片文件夹。`);
+  (async () => {
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      const pack = {
+        version: 1, kind: 'reviewer-pack', config: state.config,
+        csv_name: pendingCSV.name, image_column: imgCol, reviewer: name,
+        header: pendingCSV.header, sample_rows: chunks[i],
+        total_csv_rows: pendingCSV.rows.length, seed: seed || null,
+        created_by: adminName, created_at: now,
+      };
+      const safeName = name.replace(/[^\w一-龥-]/g, '_');
+      if (!haveImages) { downloadJSON(`pack-${safeName}.json`, pack); continue; }
+      // 有图片 → 打成自带图片的 zip:pack.json + 该人 CSV + 该人 images/
+      const enc = new TextEncoder();
+      const csvBase = pendingCSV.name.replace(/[:\\/]/g, '_').replace(/\.(csv|tsv)$/i, '');
+      const files = [
+        { name: 'pack.json', data: enc.encode(JSON.stringify(pack, null, 2)) },
+        { name: `${csvBase}-${safeName}.csv`, data: enc.encode('﻿' + rowsToCSV(pendingCSV.header, chunks[i])) },
+      ];
+      const seen = new Set();
+      for (const r of chunks[i]) {
+        const fn = extractFilename(r[imgCol]); if (!fn) continue;
+        const lc = fn.toLowerCase();
+        const file = state.imageMap.get(lc);
+        if (file && !seen.has(lc)) { seen.add(lc); files.push({ name: 'images/' + fn, data: new Uint8Array(await file.arrayBuffer()) }); }
+      }
+      downloadBlob(`pack-${safeName}.zip`, makeZip(files));
+    }
+    alert(haveImages
+      ? `已生成 ${names.length} 个 zip 任务包(各含 pack.json + 该人 CSV + 该人图片)。发给对应检察员即可,无需另发图片文件夹。`
+      : `已生成 ${names.length} 个 JSON 任务包。没选图片文件夹,所以图片要另外发;先在「②」选好图片再分包,会自动打成自带图片的 zip。`);
+  })();
 });
 
 // ========== 导入任务包(检察员)==========
@@ -1346,14 +1430,48 @@ $('#pack-input').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
   try {
-    const pack = JSON.parse(await f.text());
-    if (pack.kind !== 'reviewer-pack' || !Array.isArray(pack.sample_rows)) {
-      throw new Error('不是合法的任务包 JSON');
+    if (/\.zip$/i.test(f.name)) {
+      const entries = await readZip(await f.arrayBuffer());
+      const jsonEntry = entries.find(en => /(^|\/)pack\.json$/i.test(en.name)) || entries.find(en => /\.json$/i.test(en.name));
+      let pack;
+      if (jsonEntry) {
+        pack = JSON.parse(new TextDecoder().decode(jsonEntry.data));
+      } else {
+        // 没 pack.json → 用默认配置,从 zip 里的 CSV 建任务
+        const csvEntry = entries.find(en => /\.(csv|tsv)$/i.test(en.name));
+        if (!csvEntry) throw new Error('zip 里既没有 pack.json,也没有 CSV');
+        const text = new TextDecoder().decode(csvEntry.data);
+        const parsed = csvToObjects(parseCSV(text, sniffDelim(text, csvEntry.name)));
+        ensureUniqueIds(parsed.rows);
+        pack = {
+          version: 1, kind: 'reviewer-pack', config: DEFAULT_CONFIG,
+          csv_name: csvEntry.name, image_column: parsed.header.includes('image') ? 'image' : parsed.header[0],
+          reviewer: (reviewerInput.value || '').trim() || 'anonymous', header: parsed.header,
+          sample_rows: parsed.rows, total_csv_rows: parsed.rows.length, seed: null,
+          created_by: '(zip 无配置,用默认)', created_at: new Date().toISOString(),
+        };
+      }
+      if (pack.kind !== 'reviewer-pack' || !Array.isArray(pack.sample_rows)) throw new Error('zip 里的 pack.json 不合法');
+      if (!pack.config) pack.config = DEFAULT_CONFIG; // 没配置 → 默认
+      resetImageMap();
+      entries.forEach(en => {
+        if (/\.(jpe?g|png|webp|gif|bmp|avif|jfif)$/i.test(en.name)) {
+          const base = en.name.split('/').pop();
+          state.imageMap.set(base.toLowerCase(), new File([en.data], base));
+        }
+      });
+      enterPackMode(pack);
+      packFolderReady('来自 zip 的 ' + state.imageMap.size + ' 张图');
+    } else {
+      const pack = JSON.parse(await f.text());
+      if (pack.kind !== 'reviewer-pack' || !Array.isArray(pack.sample_rows)) throw new Error('不是合法的任务包 JSON');
+      if (!pack.config) pack.config = DEFAULT_CONFIG;
+      enterPackMode(pack);
     }
-    enterPackMode(pack);
   } catch (err) {
     alert('任务包加载失败: ' + err.message);
   }
+  e.target.value = '';
 });
 
 let pendingPack = null;
@@ -1382,21 +1500,20 @@ $('#pack-cancel-btn').addEventListener('click', () => {
   $('#setup').style.display = 'block';
 });
 
+function packFolderReady(srcLabel) {
+  const col = pendingPack.image_column || 'image';
+  let matched = 0;
+  pendingPack.sample_rows.forEach(r => { const fn = extractFilename(r[col]); if (fn && state.imageMap.has(fn.toLowerCase())) matched++; });
+  const stat = $('#pack-folder-status');
+  stat.textContent = `✓ ${srcLabel} · 你的任务包里 ${matched}/${pendingPack.sample_rows.length} 张能匹配`;
+  stat.className = matched > 0 ? 'status ok' : 'status err';
+  $('#pack-start-btn').disabled = matched === 0;
+}
 $('#pack-folder-input').addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
   resetImageMap();
   files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
-  // 算一下匹配率
-  const col = pendingPack.image_column || 'image';
-  let matched = 0;
-  pendingPack.sample_rows.forEach(r => {
-    const fn = extractFilename(r[col]);
-    if (fn && state.imageMap.has(fn.toLowerCase())) matched++;
-  });
-  const stat = $('#pack-folder-status');
-  stat.textContent = `✓ ${files.length} 个文件 · 你的任务包里 ${matched}/${pendingPack.sample_rows.length} 张能匹配`;
-  stat.className = matched > 0 ? 'status ok' : 'status err';
-  $('#pack-start-btn').disabled = matched === 0;
+  packFolderReady(files.length + ' 个文件');
 });
 
 $('#pack-start-btn').addEventListener('click', () => {
