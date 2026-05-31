@@ -110,6 +110,7 @@ td.changed{background:var(--chg-bg);}
 const $ = s => document.querySelector(s);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
+// ===== PURE CORE START =====  (DOM-free; extracted & unit-tested by test/load-core.mjs)
 let lastCsvWarnings = [];
 function sniffDelim(text, name){
   if(/\.tsv$/i.test(name||'')) return '\t';
@@ -149,6 +150,24 @@ function csvQuote(v){
   if(/^[=+\-@\t\r]/.test(v)) v="'"+v;
   return /[,"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
 }
+function headerIntersection(files){
+  if(!files.length) return [];
+  return files[0].header.filter(h => files.every(f => f.header.includes(h)));
+}
+function headerExtras(files, common){
+  const inCommon=new Set(common), extras=[], seen=new Set();
+  files.forEach(f=>f.header.forEach(h=>{ if(!inCommon.has(h)&&!seen.has(h)){seen.add(h);extras.push(h);} }));
+  return extras;
+}
+function buildIndex(){}
+function majorityOf(){}
+function computeNwayDiff(){}
+// ↓↓↓ collector MUST stay last; lists every pure fn the tests use ↓↓↓
+if (typeof globalThis.__COLLECT_CORE__ === 'function') {
+  globalThis.__COLLECT_CORE__({ sniffDelim, parseCSV, csvToObjects, csvQuote, headerIntersection, headerExtras, buildIndex, majorityOf, computeNwayDiff });
+}
+// ===== PURE CORE END =====
+
 function downloadFile(name, content, mime){
   const blob=new Blob(['﻿'+content],{type:mime||'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
