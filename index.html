@@ -185,7 +185,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
 .detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
 .img-wrap { background: var(--img-bg); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-.img-wrap img { max-width: 100%; max-height: calc(100% - 28px); object-fit: contain; cursor: zoom-in; }
+.img-wrap img { width: 100%; flex: 1; min-height: 0; object-fit: contain; cursor: zoom-in; }
 .img-hint { color: var(--text-faint); font-size: 11px; padding: 6px 0; text-align: center; }
 
 .fields { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; overflow-y: auto; }
@@ -216,6 +216,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .choice-pill:hover { border-color: var(--primary); color: var(--primary); }
 .choice-pill.active { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 .choice-pill.multi.active { background: var(--pass); border-color: var(--pass); }
+.choice-pill.out-of-opt { border-style: dashed; border-color: var(--doubt); color: var(--doubt-fg); }
+.choice-pill.out-of-opt.active { background: var(--doubt); border-color: var(--doubt); color: #fff; }
 .issues-banner { padding: 10px 12px; background: var(--danger-soft-bg); border: 1px solid var(--danger-soft-border); border-radius: 6px; margin-bottom: 12px; color: var(--fail-fg); font-size: 12px; line-height: 1.5; }
 .issues-banner b { color: var(--fail-fg); }
 .issues-banner ul { margin: 4px 0 0 16px; padding: 0; }
@@ -232,7 +234,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .lightbox img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 /* 主题开关 */
-.theme-toggle { position: fixed; top: 10px; right: 12px; z-index: 1000; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 2px 8px var(--shadow); }
+.theme-toggle { position: fixed; top: 10px; right: 12px; z-index: 1003; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 2px 8px var(--shadow); }
 .theme-toggle button { border: none; background: var(--surface); color: var(--text-muted); padding: 4px 9px; cursor: pointer; font-size: 13px; line-height: 1.4; }
 .theme-toggle button + button { border-left: 1px solid var(--border-soft); }
 .theme-toggle button.active { background: var(--primary); color: var(--primary-fg); }
@@ -245,7 +247,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* 侧栏抽屉开关(仅移动端可见) */
-.sidebar-toggle { display: none; position: fixed; top: 10px; left: 12px; z-index: 1000; width: 38px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 17px; cursor: pointer; box-shadow: 0 2px 8px var(--shadow); }
+.sidebar-toggle { display: none; position: fixed; top: 10px; left: 12px; z-index: 1003; width: 38px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 17px; cursor: pointer; box-shadow: 0 2px 8px var(--shadow); }
 
 /* ===== 移动端自适应 ===== */
 @media (max-width: 760px) {
@@ -1225,6 +1227,7 @@ startBtn.addEventListener('click', () => {
   state.reviewer = reviewerInput.value.trim() || 'anonymous';
   state.imageColumn = $('#col-input').value || 'image';
   state.packMode = false;
+  state.mode = 'review'; state.subMode = 'correct'; // CSV 核对流程总是从核对模式开始(resume 会在 initApp 覆盖)
   state.autofix = pendingAutofix;
   const sess = loadSession();
   if (sess && sess.csvName === state.csvName) state._resume = sess;
@@ -1366,6 +1369,7 @@ $('#pack-start-btn').addEventListener('click', () => {
   state.imageColumn = pendingPack.image_column || 'image';
   state.reviewer = $('#pack-reviewer-input').value.trim() || pendingPack.reviewer || 'anonymous';
   state.packMode = true;
+  state.mode = 'review'; state.subMode = 'correct';
   $('#pack-setup').style.display = 'none';
   initApp();
 });
@@ -1426,15 +1430,26 @@ async function importProgress(e) {
   try {
     const text = (await f.text()).replace(/^﻿/, ''); // 容旧版导出残留的 BOM
     const data = JSON.parse(text);
-    let n = 0, fail = 0;
+    const tsOf = (v) => { try { return Date.parse((v && (v.reviewed_at || v.annotated_at)) || '') || 0; } catch (e) { return 0; } };
+    let added = 0, updated = 0, kept = 0, fail = 0;
     Object.entries(data).forEach(([k, v]) => {
-      if (/^(review:|reannot:|sample:|session:|config:|draft:|excluded:)/.test(k)) {
-        if (safeSet(k, typeof v === 'string' ? v : JSON.stringify(v))) n++; else fail++;
+      if (!/^(review:|reannot:|sample:|session:|config:|draft:|excluded:)/.test(k)) return;
+      const incoming = typeof v === 'string' ? v : JSON.stringify(v);
+      const cur = localStorage.getItem(k);
+      if (cur == null) { if (safeSet(k, incoming)) added++; else fail++; return; }
+      if (cur === incoming) { kept++; return; }
+      // 冲突:带时间戳的 review/reannot 保留较新的,别让旧备份覆盖今天的活
+      if (/^(review:|reannot:)/.test(k)) {
+        let curObj = null; try { curObj = JSON.parse(cur); } catch (e) {}
+        if (curObj && tsOf(curObj) > tsOf(v)) { kept++; return; }
       }
+      if (safeSet(k, incoming)) updated++; else fail++;
     });
-    alert(`已导入 ${n} 条进度` + (fail ? `(${fail} 条因存储已满未写入,先清理再导入)` : ''));
+    alert(`导入完成:新增 ${added}、覆盖 ${updated}、跳过 ${kept}(本地更新或相同)` + (fail ? `、失败 ${fail}(存储已满)` : ''));
     refreshStateInfo();
     renderResumeBar();
+    // 会话进行中导入:刷新内存索引+列表,否则恢复的数据看不见、还会被下次保存覆盖
+    if (state.csvName && $('#app') && $('#app').classList.contains('show')) { buildIndex(); renderList(); if (state.index >= 0) selectIndex(state.index); }
   } catch (err) {
     alert('导入失败: ' + err.message);
   }
@@ -1469,7 +1484,8 @@ function saveSession() {
   } catch (e) {}
 }
 function loadSession() { try { return JSON.parse(localStorage.getItem('session:current')); } catch (e) { return null; } }
-function draftKey(id) { return `draft:${state.csvName}:${id}`; }
+function draftBucket() { return state.mode === 'review' ? 'review' : 'reannot'; } // review 与 reannot/annotate 的草稿分桶,避免跨模式串
+function draftKey(id) { return `draft:${state.csvName}:${draftBucket()}:${id}`; }
 function loadDraft(id) { try { return JSON.parse(localStorage.getItem(draftKey(id))); } catch (e) { return null; } }
 function clearDraft(id) { try { localStorage.removeItem(draftKey(id)); } catch (e) {} }
 function saveDraftCurrent() {
@@ -1489,7 +1505,7 @@ function renderResumeBar() {
   bar.style.display = 'block';
   bar.className = 'resume-bar';
   bar.innerHTML = `▶ 上次: <b>${escAttr(s.csvName)}</b> · 模式 ${s.mode === 'reannot' ? '重标' : '核对'} · 上次 #${s.lastAnnoId ?? '-'} · 已审 ${s.doneCount}/${s.sampleCount}`
-    + ` <span style="color:#777;">— 重新选回同名 CSV + 图片文件夹即可接着干,自动跳回上次那条</span>`
+    + ` <span style="color:var(--text-soft);">— 重新选回同名 CSV + 图片文件夹即可接着干,自动跳回上次那条</span>`
     + ` <button class="btn-link" id="resume-clear">清除</button>`
     + (fsSupported() ? ` <button class="btn-link" id="resume-oneclick">🔓 一键恢复(Chrome)</button>` : '');
   document.getElementById('resume-clear').addEventListener('click', () => { localStorage.removeItem('session:current'); renderResumeBar(); });
@@ -1704,7 +1720,7 @@ function renderList() {
 const imgUrlCache = new Map(); // 文件名(小写) -> object URL,建一次复用;按住方向键也不吊销正在加载的图
 function selectIndex(idx) {
   if (idx < 0 || idx >= state.rows.length) return;
-  try { saveDraftCurrent(); } catch (e) {} // 翻页前把当前未保存改动落成草稿,避免 J/K 一翻就丢
+  if (idx !== state.index) { try { saveDraftCurrent(); } catch (e) {} } // 真正换行才存草稿;同一行(切模式)别清掉要恢复的草稿
   state.index = idx;
   state.edits = {};
   state.activeField = null; // 每条重新从"第一个未填字段"作为数字键焦点
@@ -1771,7 +1787,7 @@ function renderFields(r) {
     const qa = document.createElement('div');
     qa.className = 'field-label';
     qa.style.marginBottom = '8px';
-    qa.innerHTML = `<span class="label-text" style="color:#888;font-weight:normal;">快捷核对</span>
+    qa.innerHTML = `<span class="label-text" style="color:var(--text-faint);font-weight:normal;">快捷核对</span>
       <div class="quick-actions">
         <button type="button" class="qa-pass${cur === 'pass' ? ' current' : ''}" title="通过(1)" aria-label="通过" aria-pressed="${cur === 'pass'}">✓</button>
         <button type="button" class="qa-fail${cur === 'fail' ? ' current' : ''}" title="不通过(2)" aria-label="不通过" aria-pressed="${cur === 'fail'}">✗</button>
@@ -1858,6 +1874,20 @@ function renderFields(r) {
       btn.addEventListener('click', () => { state.activeField = f.key; applyChoice(r, f, opt.value); });
       group.appendChild(btn);
     });
+    // 原值/当前值若不在配置选项内,仍补一个带⚠的选项卡 —— 否则审核员看不到这张图的原始标注
+    {
+      const optVals = f.options.map(o => o.value);
+      const extras = [...new Set([...origSel, ...selected])].filter(v => v && !optVals.includes(v));
+      extras.forEach(v => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'choice-pill out-of-opt' + (selected.includes(v) ? ' active' : '');
+        b.title = '原值不在当前配置选项内(可保留或改选)';
+        b.textContent = v + ' ⚠原值';
+        b.addEventListener('click', () => { state.activeField = f.key; applyChoice(r, f, v); });
+        group.appendChild(b);
+      });
+    }
     sec.appendChild(group);
     fieldsEl.appendChild(sec);
   });
@@ -1931,8 +1961,7 @@ function unmarkReview() {
   if (state.index < 0) return;
   const r = state.rows[state.index];
   localStorage.removeItem(reviewKey(r.annotation_id));
-  state.edits = {};
-  idxUpdate(r);
+  idxUpdate(r); // 保留 state.edits/草稿:取消"核对标记"不应丢掉未保存的字段修改
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
   else selectIndex(state.index);
@@ -1951,6 +1980,10 @@ function saveReannot() {
     const v = eff(f.key);
     if (v != null && String(v) !== '') values[f.key] = v;
   });
+  if (state.mode === 'annotate' && !Object.keys(values).length) { // 空标注不存,避免生成幽灵"已标"行
+    const next = nextVisibleIndex(state.index); if (next >= 0) selectIndex(next);
+    return;
+  }
   const rec = {
     annotator: state.reviewer, mode: state.mode === 'annotate' ? 'annotate' : state.subMode, values,
     note: $('#note').value, annotated_at: new Date().toISOString(),
@@ -2113,10 +2146,14 @@ function bindAppEvents() {
     window.addEventListener('beforeunload', () => { saveDraftCurrent(); saveSession(); });
   }
   document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
+    if (state.index >= 0) saveDraftCurrent(); // 切模式前用旧 mode 把草稿存进对应桶
+    state.edits = {};                          // 清脏编辑,避免带进新模式造成跨模式污染
     state.mode = b.dataset.mode; applyModeUI();
     if (state.index >= 0) selectIndex(state.index);
   }));
   document.querySelectorAll('#submode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
+    if (state.index >= 0) saveDraftCurrent();
+    state.edits = {};
     state.subMode = b.dataset.submode; applyModeUI();
     if (state.index >= 0) selectIndex(state.index);
   }));
@@ -2129,6 +2166,7 @@ function bindAppEvents() {
     if (state.index < 0 || !passesFilter(state.rows[state.index])) {
       const i = firstVisibleIndex();
       if (i >= 0) selectIndex(i);
+      else clearDetail(); // 过滤结果为空:清空详情,避免快捷键操作到看不见的行
     }
   });
   $('#prev-btn').addEventListener('click', () => { const i = prevVisibleIndex(state.index); if (i >= 0) selectIndex(i); });
@@ -2150,6 +2188,8 @@ function bindAppEvents() {
   document.addEventListener('keydown', (e) => {
     const t = (e.target.tagName || '').toLowerCase();
     if (t === 'input' || t === 'select' || t === 'textarea') return;
+    if (document.getElementById('lightbox').classList.contains('show')) return; // 灯箱打开时不让快捷键误改背后的行
+    if (document.querySelector('.modal.show')) return;
     if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') { e.preventDefault(); const i = nextVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
     else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') { e.preventDefault(); const i = prevVisibleIndex(state.index); if (i >= 0) selectIndex(i); }
     else if (e.key === '1' && state.mode === 'review') saveReview('pass');
@@ -2161,7 +2201,7 @@ function bindAppEvents() {
       const f = vf.find(x => x.key === state.activeField) || vf[0];
       if (f) { const opt = f.options[parseInt(e.key, 10) - 1]; if (opt) applyChoice(r, f, opt.value); }
     }
-    else if (e.key === 'Enter' && (state.mode === 'reannot' || state.mode === 'annotate')) saveReannot();
+    else if (e.key === 'Enter' && (state.mode === 'reannot' || state.mode === 'annotate')) { e.preventDefault(); saveReannot(); }
     else if (e.key === 'e' || e.key === 'E') excludeCurrent();
   });
 }
@@ -2268,9 +2308,18 @@ function excludeCurrent() {
   idxUpdate(r);
   renderList();
   if (passesFilter(r)) { selectIndex(state.index); }            // 恢复后(或正看「已排除」)留在原地刷新
-  else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); }
+  else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); else clearDetail(); }
 }
 { const _x = $('#exclude-btn'); if (_x) _x.addEventListener('click', excludeCurrent); }
+// 过滤/排除后无可见行时:清空详情面板,避免对看不见的行做快捷操作
+function clearDetail() {
+  state.index = -1;
+  const img = $('#d-img'); if (img) { img.removeAttribute('src'); img.alt = ''; }
+  if ($('#d-id')) $('#d-id').textContent = '-';
+  if ($('#d-filename')) $('#d-filename').textContent = '(当前过滤无可显示项)';
+  const badge = $('#d-status'); if (badge) { badge.className = 'badge'; badge.textContent = '—'; }
+  if ($('#fields')) $('#fields').innerHTML = '<div class="field-meta">没有符合当前过滤的条目;换个过滤或恢复已排除项。</div>';
+}
 
 // ========== 移动端:侧栏抽屉开合 ==========
 { const _st = document.getElementById('sidebar-toggle'); if (_st) _st.addEventListener('click', () => { const a = document.getElementById('app'); if (a) a.classList.toggle('drawer-open'); }); }
