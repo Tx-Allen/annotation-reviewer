@@ -9,7 +9,7 @@ name: Deploy to Cloudflare Pages
 on:
   push:
     branches: [main]
-    paths: ['index.html', '_headers', '.github/workflows/deploy-pages.yml']
+    paths: ['index.html', 'compare.html', '_headers', '.github/workflows/deploy-pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,7 @@ jobs:
         run: |
           mkdir -p dist
           cp index.html dist/index.html
+          cp compare.html dist/compare.html
           cp _headers dist/_headers
       - name: Deploy (direct upload, no build queue)
         env:

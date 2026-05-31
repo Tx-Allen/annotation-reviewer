@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSV 横向对比 · DataReviewer</title>
+<style>
+:root{
+  --bg:#f5f6f8;--surface:#fff;--text:#1a1d21;--text-muted:#5a6270;--text-faint:#8a93a0;
+  --border:#dfe3e8;--border-soft:#eef0f3;--primary:#2d6cdf;--pass:#2e9d5b;--fail:#d23b3b;
+  --shadow:rgba(0,0,0,.08);--add-bg:#e6f6ec;--del-bg:#fdeaea;--chg-bg:#fff7e0;--chg-fg:#8a6200;--same:#9aa3af;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#15171c;--surface:#1e2127;--text:#e6e8eb;--text-muted:#a6adba;--text-faint:#79828f;
+  --border:#333842;--border-soft:#262a31;--primary:#5b9bff;--pass:#48c98a;--fail:#ff6b6b;
+  --shadow:rgba(0,0,0,.4);--add-bg:#16321f;--del-bg:#3a1d1d;--chg-bg:#3a3115;--chg-fg:#f0d98a;--same:#79828f;
+}}
+[data-theme="dark"]{
+  --bg:#15171c;--surface:#1e2127;--text:#e6e8eb;--text-muted:#a6adba;--text-faint:#79828f;
+  --border:#333842;--border-soft:#262a31;--primary:#5b9bff;--pass:#48c98a;--fail:#ff6b6b;
+  --shadow:rgba(0,0,0,.4);--add-bg:#16321f;--del-bg:#3a1d1d;--chg-bg:#3a3115;--chg-fg:#f0d98a;--same:#79828f;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;}
+a{color:var(--primary)}
+.wrap{max-width:1200px;margin:0 auto;padding:18px;}
+.card{background:var(--surface);border-radius:12px;box-shadow:0 4px 20px var(--shadow);padding:20px;margin-bottom:16px;}
+h1{font-size:20px;margin:0 0 4px;}
+.hint{color:var(--text-faint);font-size:13px;margin-bottom:14px;}
+.row{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;}
+.field{display:flex;flex-direction:column;gap:5px;}
+.field label{font-size:12px;color:var(--text-muted);}
+input[type=file],select{padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);}
+.status{font-size:12px;color:var(--text-faint);min-height:15px;margin-top:4px;}
+.status.ok{color:var(--pass)} .status.err{color:var(--fail)}
+.btn-export{font-size:13px;font-weight:700;color:#fff;background:var(--primary);border:none;border-radius:6px;padding:7px 16px;cursor:pointer;box-shadow:0 2px 6px var(--shadow);}
+.btn-export:hover{filter:brightness(1.08)} .btn-export:active{transform:translateY(1px)}
+.btn-export:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;}
+.btn-link{font-size:13px;color:var(--primary);background:none;border:none;cursor:pointer;text-decoration:none;}
+.btn-link:hover{text-decoration:underline}
+.summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px;margin-bottom:10px;}
+.pill{padding:2px 10px;border-radius:20px;font-weight:600;}
+.pill.chg{background:var(--chg-bg);color:var(--chg-fg)} .pill.add{background:var(--add-bg);color:var(--pass)} .pill.del{background:var(--del-bg);color:var(--fail)} .pill.same{background:var(--border-soft);color:var(--same)}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:10px 0;}
+.controls label{font-size:13px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+.col-note{font-size:12px;color:var(--text-faint);margin-top:6px;}
+.table-wrap{overflow:auto;max-height:72vh;border:1px solid var(--border-soft);border-radius:8px;}
+table{border-collapse:collapse;width:100%;font-size:13px;}
+th,td{border-bottom:1px solid var(--border-soft);padding:6px 9px;text-align:left;vertical-align:top;white-space:nowrap;}
+th{position:sticky;top:0;background:var(--surface);z-index:1;font-size:12px;color:var(--text-muted);box-shadow:0 1px 0 var(--border);}
+td.key{font-weight:600;white-space:nowrap;}
+tr.r-chg{background:color-mix(in srgb,var(--chg-bg) 45%,transparent);}
+tr.r-add{background:color-mix(in srgb,var(--add-bg) 55%,transparent);}
+tr.r-del{background:color-mix(in srgb,var(--del-bg) 55%,transparent);}
+td .old{color:var(--fail);text-decoration:line-through;opacity:.8;}
+td .arrow{color:var(--text-faint);margin:0 4px;}
+td .new{color:var(--pass);font-weight:600;}
+td.changed{background:var(--chg-bg);}
+.badge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px;}
+.badge.chg{background:var(--chg-bg);color:var(--chg-fg)} .badge.add{background:var(--add-bg);color:var(--pass)} .badge.del{background:var(--del-bg);color:var(--fail)} .badge.same{background:var(--border-soft);color:var(--same)}
+.empty{padding:40px;text-align:center;color:var(--text-faint);}
+.theme-toggle{position:fixed;top:10px;right:12px;z-index:10;display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface);box-shadow:0 2px 8px var(--shadow);}
+.theme-toggle button{border:none;background:var(--surface);color:var(--text-muted);padding:4px 9px;cursor:pointer;font-size:13px;}
+.theme-toggle button.active{background:var(--primary);color:#fff;}
+.muted{color:var(--text-faint);}
+</style>
+</head>
+<body>
+<div class="theme-toggle" id="theme-toggle">
+  <button data-theme-pref="light" title="浅色">☀</button>
+  <button data-theme-pref="dark" title="深色">☾</button>
+  <button data-theme-pref="auto" title="跟随系统">A</button>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h1>CSV 横向对比</h1>
+    <div class="hint">传两份 CSV(旧 / 新),按键列对齐,逐字段横向对比、高亮改动、分出新增/删除行。纯本地,数据不上传。 · <a href="index.html">← 回核对/标注工具</a></div>
+    <div class="row">
+      <div class="field">
+        <label>① 旧 CSV(基准)</label>
+        <input type="file" id="old-input" accept=".csv,.tsv,text/csv">
+        <div id="old-status" class="status"></div>
+      </div>
+      <div class="field">
+        <label>② 新 CSV(对比对象)</label>
+        <input type="file" id="new-input" accept=".csv,.tsv,text/csv">
+        <div id="new-status" class="status"></div>
+      </div>
+      <div class="field">
+        <label>③ 对齐键列</label>
+        <select id="key-select" disabled><option>先选两份 CSV</option></select>
+      </div>
+    </div>
+    <div id="col-note" class="col-note"></div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none;">
+    <div class="summary" id="summary"></div>
+    <div class="controls">
+      <label><input type="checkbox" id="diff-only" checked> 只看差异(隐藏「相同」行)</label>
+      <button class="btn-export" id="export-diff">⬇ 导出差异 CSV</button>
+      <span id="shown-count" class="muted"></span>
+    </div>
+    <div class="table-wrap"><table id="diff-table"><thead></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<script>
+// ===== 工具(与 index.html 同套,已加固) =====
+const $ = s => document.querySelector(s);
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+let lastCsvWarnings = [];
+function sniffDelim(text, name){
+  if(/\.tsv$/i.test(name||'')) return '\t';
+  const first=(String(text||'').split(/\r?\n/,1)[0])||'';
+  const tabs=(first.match(/\t/g)||[]).length, commas=(first.match(/,/g)||[]).length;
+  return tabs>commas?'\t':',';
+}
+function parseCSV(text, delim){
+  delim=delim||','; lastCsvWarnings=[];
+  const rows=[]; let row=[],field='',q=false;
+  text=text.replace(/^﻿/,'');
+  for(let i=0;i<text.length;i++){
+    const c=text[i], n=text[i+1];
+    if(q){ if(c==='"'&&n==='"'){field+='"';i++;} else if(c==='"'){q=false;} else field+=c; }
+    else { if(c==='"'&&field===''){q=true;} else if(c===delim){row.push(field);field='';} else if(c==='\n'){row.push(field);rows.push(row);row=[];field='';} else if(c==='\r'){} else field+=c; }
+  }
+  if(q) lastCsvWarnings.push('检测到未闭合的引号,可能有行被合并或截断');
+  if(field!==''||row.length){row.push(field);rows.push(row);}
+  return rows;
+}
+function csvToObjects(rows){
+  if(!rows.length) return {header:[],rows:[]};
+  const seen={};
+  const header=rows[0].map(h=>{h=(h==null?'':h); if(seen[h]!=null){seen[h]+=1;return `${h}_${seen[h]}`;} seen[h]=1;return h;});
+  const deformula=s=>(typeof s==='string'&&/^'[=+\-@]/.test(s))?s.slice(1):s;
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i];
+    if(!r.length||(r.length===1&&!r[0])) continue;
+    const o={}; header.forEach((k,j)=>{o[k]=deformula(r[j]!==undefined?r[j]:'');});
+    out.push(o);
+  }
+  return {header,rows:out};
+}
+function csvQuote(v){
+  v=String(v??'');
+  if(/^[=+\-@\t\r]/.test(v)) v="'"+v;
+  return /[,"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+}
+function downloadFile(name, content, mime){
+  const blob=new Blob(['﻿'+content],{type:mime||'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+// ===== 主题 =====
+function applyTheme(pref){
+  const root=document.documentElement;
+  if(pref==='light'||pref==='dark') root.setAttribute('data-theme',pref); else root.removeAttribute('data-theme');
+  document.querySelectorAll('#theme-toggle button').forEach(b=>b.classList.toggle('active',b.dataset.themePref===pref));
+}
+(function initTheme(){
+  let pref='auto'; try{pref=localStorage.getItem('theme:pref')||'auto';}catch{}
+  applyTheme(pref);
+  document.querySelectorAll('#theme-toggle button').forEach(b=>b.addEventListener('click',()=>{const p=b.dataset.themePref;try{localStorage.setItem('theme:pref',p);}catch{} applyTheme(p);}));
+})();
+
+// ===== 状态 =====
+const S = { old:null, neu:null, keyCol:'', diff:null };
+
+function loadFile(file, slot){
+  const stat = $(slot==='old' ? '#old-status' : '#new-status');
+  const text = file._text;
+  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, file.name)));
+  const warn = lastCsvWarnings.length ? ' · ⚠ '+lastCsvWarnings.join(';') : '';
+  S[slot==='old'?'old':'neu'] = { name:file.name, header:parsed.header, rows:parsed.rows };
+  stat.textContent = `✓ ${file.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列${warn}`;
+  stat.className = 'status ok';
+  refreshKeyOptions();
+}
+
+function commonHeaders(){
+  if(!S.old||!S.neu) return [];
+  const a=new Set(S.old.header);
+  return S.neu.header.filter(h=>a.has(h));
+}
+function refreshKeyOptions(){
+  const sel=$('#key-select');
+  if(!S.old||!S.neu){ sel.disabled=true; return; }
+  const common=commonHeaders();
+  if(!common.length){
+    sel.innerHTML='<option>两份没有同名列,无法按键对齐</option>'; sel.disabled=true;
+    $('#col-note').textContent='⚠ 两份 CSV 没有任何同名列,无法对齐。请检查表头。';
+    return;
+  }
+  sel.disabled=false;
+  const prev=S.keyCol;
+  const def = (prev && common.includes(prev)) ? prev : (common.includes('annotation_id')?'annotation_id':common[0]);
+  sel.innerHTML = common.map(h=>`<option value="${esc(h)}"${h===def?' selected':''}>${esc(h)}</option>`).join('');
+  S.keyCol = def;
+  compare();
+}
+
+function buildMap(file, keyCol){
+  const m=new Map(); let dup=0;
+  file.rows.forEach(r=>{ const k=String(r[keyCol]??''); if(m.has(k)){dup++;return;} m.set(k,r); });
+  return {map:m, dup};
+}
+
+function compare(){
+  if(!S.old||!S.neu||!S.keyCol) return;
+  const keyCol=S.keyCol;
+  const common=commonHeaders();
+  const fields=common.filter(h=>h!==keyCol);
+  const oldM=buildMap(S.old,keyCol), newM=buildMap(S.neu,keyCol);
+  const onlyOldCols=S.old.header.filter(h=>!new Set(S.neu.header).has(h));
+  const onlyNewCols=S.neu.header.filter(h=>!new Set(S.old.header).has(h));
+
+  const rows=[]; let chg=0,add=0,del=0,same=0;
+  const seenKeys=new Set();
+  S.old.rows.forEach(or=>{
+    const k=String(or[keyCol]??''); if(seenKeys.has(k))return; seenKeys.add(k);
+    if(newM.map.has(k)){
+      const nr=newM.map.get(k); const cells={}; let changed=false;
+      fields.forEach(f=>{ const ov=String(or[f]??''), nv=String(nr[f]??''); const ch=ov!==nv; if(ch)changed=true; cells[f]={old:ov,new:nv,changed:ch}; });
+      rows.push({key:k,status:changed?'changed':'same',cells}); changed?chg++:same++;
+    } else {
+      const cells={}; fields.forEach(f=>{cells[f]={old:String(or[f]??''),new:'',changed:false};});
+      rows.push({key:k,status:'removed',cells}); del++;
+    }
+  });
+  S.neu.rows.forEach(nr=>{
+    const k=String(nr[keyCol]??''); if(seenKeys.has(k))return; seenKeys.add(k);
+    const cells={}; fields.forEach(f=>{cells[f]={old:'',new:String(nr[f]??''),changed:false};});
+    rows.push({key:k,status:'added',cells}); add++;
+  });
+  const order={changed:0,added:1,removed:2,same:3};
+  rows.sort((a,b)=> order[a.status]-order[b.status]);
+
+  S.diff={keyCol,fields,rows,counts:{chg,add,del,same},dup:oldM.dup+newM.dup,onlyOldCols,onlyNewCols};
+  render();
+}
+
+function render(){
+  const d=S.diff; if(!d) return;
+  $('#result-card').style.display='';
+  $('#summary').innerHTML =
+    `<span class="pill chg">改动 ${d.counts.chg}</span>`+
+    `<span class="pill add">新增 ${d.counts.add}</span>`+
+    `<span class="pill del">删除 ${d.counts.del}</span>`+
+    `<span class="pill same">相同 ${d.counts.same}</span>`+
+    `<span class="muted">键列:<b>${esc(d.keyCol)}</b> · 对比 ${d.fields.length} 个公共字段</span>`;
+  let note='';
+  if(d.onlyOldCols.length) note+=`仅旧有的列(对比忽略):${d.onlyOldCols.map(esc).join(', ')}。 `;
+  if(d.onlyNewCols.length) note+=`仅新有的列(对比忽略):${d.onlyNewCols.map(esc).join(', ')}。 `;
+  if(d.dup) note+=`⚠ 有 ${d.dup} 个重复键,仅保留首次出现。`;
+  $('#col-note').innerHTML=note;
+
+  const diffOnly=$('#diff-only').checked;
+  const thead=$('#diff-table thead'), tbody=$('#diff-table tbody');
+  thead.innerHTML='<tr><th>'+esc(d.keyCol)+'</th><th>状态</th>'+d.fields.map(f=>'<th>'+esc(f)+'</th>').join('')+'</tr>';
+  const badge={changed:'<span class="badge chg">改动</span>',added:'<span class="badge add">新增</span>',removed:'<span class="badge del">删除</span>',same:'<span class="badge same">相同</span>'};
+  let shown=0;
+  const html=d.rows.filter(r=>!(diffOnly&&r.status==='same')).map(r=>{
+    shown++;
+    const tds=d.fields.map(f=>{
+      const c=r.cells[f];
+      if(r.status==='added') return '<td>'+(c.new?'<span class="new">'+esc(c.new)+'</span>':'<span class="muted">∅</span>')+'</td>';
+      if(r.status==='removed') return '<td>'+(c.old?'<span class="old">'+esc(c.old)+'</span>':'<span class="muted">∅</span>')+'</td>';
+      if(c.changed) return '<td class="changed"><span class="old">'+(esc(c.old)||'∅')+'</span><span class="arrow">→</span><span class="new">'+(esc(c.new)||'∅')+'</span></td>';
+      return '<td>'+esc(c.new)+'</td>';
+    }).join('');
+    return `<tr class="r-${r.status==='changed'?'chg':r.status==='added'?'add':r.status==='removed'?'del':'same'}"><td class="key">${esc(r.key)}</td><td>${badge[r.status]}</td>${tds}</tr>`;
+  }).join('');
+  tbody.innerHTML = html || '<tr><td class="empty" colspan="'+(d.fields.length+2)+'">没有符合当前过滤的行</td></tr>';
+  $('#shown-count').textContent = `显示 ${shown} / ${d.rows.length} 行`;
+}
+
+function exportDiff(){
+  const d=S.diff; if(!d){alert('还没有对比结果');return;}
+  const rows=d.rows.filter(r=>r.status!=='same');
+  if(!rows.length){alert('没有差异(改动/新增/删除)可导出');return;}
+  const header=[d.keyCol,'__status'];
+  d.fields.forEach(f=>{header.push(f); header.push('__old_'+f);});
+  const lines=[header.map(csvQuote).join(',')];
+  rows.forEach(r=>{
+    const line=[csvQuote(r.key),csvQuote(r.status)];
+    d.fields.forEach(f=>{ const c=r.cells[f]; line.push(csvQuote(c.new)); line.push(csvQuote(c.old)); });
+    lines.push(line.join(','));
+  });
+  const oldName=(S.old&&S.old.name||'old').replace(/[:\\/]/g,'_').replace(/\.(csv|tsv)$/i,'');
+  downloadFile(`diff-${oldName}-vs-new-${new Date().toISOString().slice(0,10)}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+
+// ===== 事件 =====
+$('#old-input').addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f)return; f._text=await f.text(); loadFile(f,'old'); e.target.value=''; });
+$('#new-input').addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f)return; f._text=await f.text(); loadFile(f,'new'); e.target.value=''; });
+$('#key-select').addEventListener('change', e=>{ S.keyCol=e.target.value; compare(); });
+$('#diff-only').addEventListener('change', render);
+$('#export-diff').addEventListener('click', exportDiff);
+</script>
+</body>
+</html>

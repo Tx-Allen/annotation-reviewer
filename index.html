@@ -289,6 +289,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 <div id="setup">
   <h1>标注核对(本地版)</h1>
   <p class="hint">完全离线运行,CSV 和图片都不离开你的电脑。进度自动存浏览器,也可导出 JSON 备份。</p>
+  <p style="margin:0 0 8px;"><a href="compare.html" class="btn-link" style="font-size:13px;">🔀 对比两份 CSV(旧 vs 新 · 横向 diff)→</a></p>
 
   <div id="resume-bar" style="display:none;"></div>
 
@@ -468,6 +469,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-link" id="export-lsjson" title="导出 Label Studio 可导入的 JSON">LS-JSON</button>
         <button class="btn-link" id="compare-summary">对比汇总</button>
         <button class="btn-link" id="export-state2">备份进度</button>
+        <button class="btn-link" id="export-excluded">导出被排除清单</button>
         <button class="btn-link" id="reload-setup">重新加载</button>
       </div>
       <div id="autofix-bar" class="autofix-bar" style="display:none;"></div>
@@ -1994,6 +1996,13 @@ function renderFields(r) {
     ram.textContent = `${state.mode === 'annotate' ? '上次标注' : '上次重标'}: ${ra.annotator} · ${raKind} · ${new Date(ra.annotated_at).toLocaleString()}`;
     fieldsEl.appendChild(ram);
   }
+  const exc = loadExcludedObj(r.annotation_id);
+  if (exc) {
+    const em = document.createElement('div');
+    em.className = 'field-meta';
+    em.innerHTML = `🚫 已排除${exc.reason ? ' · 原因:' + escAttr(exc.reason) : ''}${exc.by ? ' · ' + escAttr(exc.by) : ''}`;
+    fieldsEl.appendChild(em);
+  }
 }
 
 function escAttr(s) {
@@ -2368,18 +2377,78 @@ function exportAnnotateCSV() {
 { const _ea = $('#export-annotate'); if (_ea) _ea.addEventListener('click', exportAnnotateCSV); }
 
 // ========== 删除/排除图片(不属于本数据集;软排除,不动磁盘原图) ==========
-function excludeCurrent() {
-  if (state.index < 0) return;
-  const r = state.rows[state.index];
-  const id = r.annotation_id;
-  if (loadExcluded(id)) localStorage.removeItem(excludeKey(id));
-  else if (!safeSet(excludeKey(id), JSON.stringify({ by: state.reviewer, at: new Date().toISOString() }))) return;
+function afterExcludeChange(r) {
   idxUpdate(r);
   renderList();
   if (passesFilter(r)) { selectIndex(state.index); }            // 恢复后(或正看「已排除」)留在原地刷新
   else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); else clearDetail(); }
 }
+function doExclude(r, reason) {
+  if (!safeSet(excludeKey(r.annotation_id), JSON.stringify({ by: state.reviewer, at: new Date().toISOString(), reason: reason || '' }))) return;
+  afterExcludeChange(r);
+}
+const EXCLUDE_REASONS = ['模糊不清', '重复', '与主体无关', '标注错误', '其他'];
+function openExcludeReason(r) {
+  const old = document.getElementById('exclude-modal'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'exclude-modal'; m.className = 'modal show';
+  let picked = '';
+  m.innerHTML = `<div style="background:var(--surface);border-radius:12px;padding:20px;max-width:420px;width:90%;box-shadow:0 10px 40px var(--shadow);">
+    <h3 style="margin:0 0 4px;">排除这张图 — 为什么不符合整体数据?</h3>
+    <p class="field-meta" style="margin:0 0 12px;">软排除:从列表和所有导出里去掉,可随时恢复,不动磁盘原图。</p>
+    <div id="exr-chips" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      ${EXCLUDE_REASONS.map(x => `<button type="button" class="choice-pill" data-r="${escAttr(x)}">${escAttr(x)}</button>`).join('')}
+    </div>
+    <input id="exr-note" type="text" placeholder="备注(可选)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);margin-bottom:14px;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button type="button" class="btn-secondary" id="exr-cancel">取消</button>
+      <button type="button" class="btn-primary" id="exr-ok">排除</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const note = m.querySelector('#exr-note');
+  m.querySelectorAll('#exr-chips .choice-pill').forEach(b => b.addEventListener('click', () => {
+    const v = b.dataset.r;
+    if (picked === v) { picked = ''; b.classList.remove('active'); }
+    else { picked = v; m.querySelectorAll('#exr-chips .choice-pill').forEach(x => x.classList.toggle('active', x === b)); }
+  }));
+  const close = () => m.remove();
+  const confirm = () => { const n = (note.value || '').trim(); const reason = picked ? (n ? `${picked}(${n})` : picked) : n; close(); doExclude(r, reason); };
+  m.querySelector('#exr-cancel').addEventListener('click', close);
+  m.querySelector('#exr-ok').addEventListener('click', confirm);
+  m.addEventListener('click', e => { if (e.target === m) close(); });          // 点遮罩关闭
+  note.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
+  m.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+  note.focus();
+}
+function excludeCurrent() {
+  if (state.index < 0) return;
+  const r = state.rows[state.index];
+  const id = r.annotation_id;
+  if (loadExcluded(id)) { localStorage.removeItem(excludeKey(id)); afterExcludeChange(r); } // 已排除 → 直接恢复
+  else openExcludeReason(r);                                                                 // 未排除 → 先选原因再排除
+}
 { const _x = $('#exclude-btn'); if (_x) _x.addEventListener('click', excludeCurrent); }
+{ const _xe = $('#export-excluded'); if (_xe) _xe.addEventListener('click', exportExcludedList); }
+function exportExcludedList() {
+  const prefix = `excluded:${state.csvName}:`;
+  const imgCol = state.imageColumn || 'image';
+  const byId = new Map((state.fullRows || []).map(x => [String(x.annotation_id), x]));
+  const out = [['annotation_id', 'image', 'reason', 'by', 'at'].map(csvQuote).join(',')];
+  let cnt = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || k.indexOf(prefix) !== 0) continue;
+    const id = k.slice(prefix.length);
+    let o = {}; try { o = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) {}
+    const row = byId.get(String(id));
+    const img = row ? extractFilename(row[imgCol]) : '';
+    out.push([id, img, o.reason || '', o.by || '', o.at || ''].map(csvQuote).join(','));
+    cnt++;
+  }
+  if (!cnt) { alert('当前数据集没有被排除的图'); return; }
+  downloadFile(`excluded-${state.csvName.replace(/[:\\/]/g, '_')}.csv`, out.join('\n'), 'text/csv;charset=utf-8');
+}
 // 过滤/排除后无可见行时:清空详情面板,避免对看不见的行做快捷操作
 function clearDetail() {
   state.index = -1;
@@ -2445,6 +2514,7 @@ function showDupBanner(n) {
 // ========== P1 内存状态索引(避免每次渲染都 O(N) 读 localStorage) ==========
 function excludeKey(id) { return `excluded:${state.csvName}:${id}`; }
 function loadExcluded(id) { return !!localStorage.getItem(excludeKey(id)); }
+function loadExcludedObj(id) { try { return JSON.parse(localStorage.getItem(excludeKey(id))) || null; } catch (e) { return null; } }
 function idxUpdate(r) {
   if (!state.idx) state.idx = new Map();
   const id = r.annotation_id;
