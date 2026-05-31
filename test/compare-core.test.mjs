@@ -67,3 +67,68 @@ test('majorityOf: empty -> null', () => {
   assert.deepEqual(core.majorityOf([]),
     { majority: null, top: 0, present: 0, tie: false });
 });
+
+function f(label, header, rows){ return { id: label, label, name: label+'.csv', header, rows }; }
+
+test('computeNwayDiff: agree row, majority row, missing key, ignored cols', () => {
+  const A = f('A', ['id','label','score','onlyA'], [
+    { id:'1', label:'cat', score:'.9', onlyA:'x' },
+    { id:'2', label:'cat', score:'.8', onlyA:'y' },
+    { id:'3', label:'dog', score:'.5', onlyA:'z' },
+  ]);
+  const B = f('B', ['id','label','score'], [
+    { id:'1', label:'cat', score:'.9' },
+    { id:'2', label:'dog', score:'.8' },   // disagrees on label
+  ]);
+  const C = f('C', ['id','label','score'], [
+    { id:'1', label:'cat', score:'.9' },
+    { id:'2', label:'cat', score:'.6' },   // disagrees on score
+  ]);
+  const d = core.computeNwayDiff([A,B,C], 'id');
+
+  assert.deepEqual(d.fields, ['label','score']);   // 'onlyA' excluded
+  assert.deepEqual(d.onlySomeCols, ['onlyA']);
+  assert.equal(d.labels.join(','), 'A,B,C');
+
+  const byKey = Object.fromEntries(d.rows.map(r=>[r.key,r]));
+
+  assert.equal(byKey['1'].status, 'agree');
+  assert.equal(byKey['1'].missingIn.length, 0);
+  assert.equal(byKey['1'].cells.label.fieldAgree, true);
+  assert.deepEqual(byKey['1'].cells.label.values.map(v=>v.outlier), [false,false,false]);
+
+  assert.equal(byKey['2'].status, 'diff');
+  assert.equal(byKey['2'].cells.label.majority, 'cat');
+  assert.equal(byKey['2'].cells.label.agree, '2:1');
+  assert.deepEqual(byKey['2'].cells.label.values.map(v=>[v.label,v.outlier]),
+    [['A',false],['B',true],['C',false]]);
+  assert.equal(byKey['2'].cells.score.majority, '.8');
+  assert.deepEqual(byKey['2'].cells.score.values.map(v=>[v.label,v.outlier]),
+    [['A',false],['B',false],['C',true]]);
+
+  assert.equal(byKey['3'].status, 'diff');
+  assert.deepEqual(byKey['3'].missingIn, ['B','C']);
+  assert.deepEqual(byKey['3'].cells.label.values.map(v=>v.present), [true,false,false]);
+
+  assert.equal(d.rows[d.rows.length-1].status, 'agree');
+  assert.deepEqual(d.counts, { agree: 1, diff: 2 });
+});
+
+test('computeNwayDiff: 1:1 tie highlights both, no majority', () => {
+  const A = f('A', ['id','x'], [{ id:'1', x:'cat' }]);
+  const B = f('B', ['id','x'], [{ id:'1', x:'dog' }]);
+  const d = core.computeNwayDiff([A,B], 'id');
+  const c = d.rows[0].cells.x;
+  assert.equal(c.majority, null);
+  assert.deepEqual(c.values.map(v=>v.outlier), [true,true]);
+  assert.equal(d.rows[0].status, 'diff');
+});
+
+test('computeNwayDiff: integration through parseCSV/csvToObjects', () => {
+  const mk = (label, text) => { const p = core.csvToObjects(core.parseCSV(text, ',')); return { id:label, label, name:label, header:p.header, rows:p.rows }; };
+  const A = mk('A', 'id,v\n1,a\n2,b\n');
+  const B = mk('B', 'id,v\n1,a\n2,c\n');
+  const d = core.computeNwayDiff([A,B], 'id');
+  assert.equal(d.counts.agree, 1);
+  assert.equal(d.counts.diff, 1);
+});

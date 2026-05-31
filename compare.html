@@ -176,7 +176,49 @@ function majorityOf(values){
   if(tie || values.length===0) majority=null;
   return { majority, top, present: values.length, tie };
 }
-function computeNwayDiff(){}
+function computeNwayDiff(files, keyCol){
+  const labels=files.map(f=>f.label);
+  const common=headerIntersection(files);
+  const fields=common.filter(h=>h!==keyCol);
+  const onlySomeCols=headerExtras(files, common);
+  const idx=files.map(f=>buildIndex(f, keyCol));
+  const dup=idx.reduce((a,b)=>a+b.dup,0);
+
+  const seen=new Set(), keys=[];
+  files.forEach((file,i)=>file.rows.forEach(r=>{ const k=String(r[keyCol]??''); if(!seen.has(k)){seen.add(k);keys.push(k);} }));
+
+  const rows=[]; let cAgree=0, cDiff=0;
+  keys.forEach(k=>{
+    const present=idx.map(ix=>ix.map.has(k));
+    const missingIn=labels.filter((lb,i)=>!present[i]);
+    const allPresent=present.every(Boolean);
+    const cells={}; let rowAgree=true;
+    fields.forEach(field=>{
+      const values=files.map((file,i)=>({
+        label: labels[i],
+        value: present[i] ? String(idx[i].map.get(k)[field]??'') : '',
+        present: present[i],
+        outlier: false,
+      }));
+      const presentVals=values.filter(v=>v.present).map(v=>v.value);
+      const allEqual=allPresent && presentVals.every(v=>v===presentVals[0]);
+      const m=majorityOf(presentVals);
+      if(m.majority!==null){
+        values.forEach(v=>{ if(v.present && v.value!==m.majority) v.outlier=true; });
+      } else if(!allEqual){
+        values.forEach(v=>{ if(v.present) v.outlier=true; });
+      }
+      if(!allEqual) rowAgree=false;
+      const agree = m.present ? (m.top + ':' + (m.present - m.top)) : '';
+      cells[field]={ values, majority:m.majority, agree, fieldAgree: allEqual };
+    });
+    const status=(rowAgree && missingIn.length===0) ? 'agree' : 'diff';
+    if(status==='agree') cAgree++; else cDiff++;
+    rows.push({ key:k, status, missingIn, cells });
+  });
+  rows.sort((a,b)=>(a.status==='diff'?0:1)-(b.status==='diff'?0:1));
+  return { keyCol, labels, fields, onlySomeCols, rows, counts:{agree:cAgree,diff:cDiff}, dup };
+}
 // ↓↓↓ collector MUST stay last; lists every pure fn the tests use ↓↓↓
 if (typeof globalThis.__COLLECT_CORE__ === 'function') {
   globalThis.__COLLECT_CORE__({ sniffDelim, parseCSV, csvToObjects, csvQuote, headerIntersection, headerExtras, buildIndex, majorityOf, computeNwayDiff });
