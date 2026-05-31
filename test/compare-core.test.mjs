@@ -132,3 +132,35 @@ test('computeNwayDiff: integration through parseCSV/csvToObjects', () => {
   assert.equal(d.counts.agree, 1);
   assert.equal(d.counts.diff, 1);
 });
+
+test('computeNwayDiff: 4-way plurality marks the minority as outliers', () => {
+  const mk=(label,x)=>f(label,['id','x'],[{id:'1',x}]);
+  const d=core.computeNwayDiff([mk('A','a'),mk('B','a'),mk('C','b'),mk('D','c')],'id');
+  const c=d.rows[0].cells.x;
+  assert.equal(c.majority,'a');
+  assert.equal(c.agree,'2:2');
+  assert.deepEqual(c.values.map(v=>v.outlier),[false,false,true,true]);
+  assert.equal(d.rows[0].status,'diff');
+});
+
+test('computeNwayDiff: absent cell is present:false, not a false agreement', () => {
+  const A=f('A',['id','x'],[{id:'1',x:''}]);
+  const B=f('B',['id','x'],[{id:'1',x:''}]);
+  const C=f('C',['id','x'],[{id:'2',x:'z'}]); // lacks key '1'
+  const d=core.computeNwayDiff([A,B,C],'id');
+  const r=d.rows.find(r=>r.key==='1');
+  assert.deepEqual(r.cells.x.values.map(v=>v.present),[true,true,false]);
+  assert.equal(r.cells.x.values[2].outlier,false);
+  assert.equal(r.cells.x.values[2].value,'');
+  assert.equal(r.status,'diff');
+  assert.deepEqual(r.missingIn,['C']);
+});
+
+test('computeNwayDiff: 3-way all-distinct has no majority, all outliers', () => {
+  const mk=(label,x)=>f(label,['id','x'],[{id:'1',x}]);
+  const d=core.computeNwayDiff([mk('A','a'),mk('B','b'),mk('C','c')],'id');
+  const c=d.rows[0].cells.x;
+  assert.equal(c.majority,null);
+  assert.deepEqual(c.values.map(v=>v.outlier),[true,true,true]);
+  assert.equal(c.agree,'1:2');
+});

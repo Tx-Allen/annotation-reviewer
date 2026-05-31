@@ -194,6 +194,8 @@ function computeNwayDiff(files, keyCol){
     const allPresent=present.every(Boolean);
     const cells={}; let rowAgree=true;
     fields.forEach(field=>{
+      // NOTE: `outlier` is only meaningful when present===true. An absent cell is
+      // {present:false, value:'', outlier:false} — consumers MUST check present first.
       const values=files.map((file,i)=>({
         label: labels[i],
         value: present[i] ? String(idx[i].map.get(k)[field]??'') : '',
