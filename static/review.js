@@ -1,5 +1,10 @@
 // 简单单页 SPA:列表 + 详情,键盘快捷键,字段编辑高亮。
 
+// HTML 转义:image_filename 等来自 DB 的字段插入 innerHTML 前必须转义,防存储型 XSS
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 const FIELD_DEFS = [
   { key: "colour",            label: "颜色 (colour)",    dropdown: true },
   { key: "defects",           label: "瑕疵 (defects)",   dropdown: true },
@@ -90,8 +95,8 @@ function renderList() {
     const s = statusKey(it.status);
     li.innerHTML = `
       <span class="st ${s}">${statusSym(it.status)}</span>
-      <span class="id">#${it.annotation_id}</span>
-      <span class="fn" title="${it.image_filename}">${it.image_filename}</span>
+      <span class="id">#${esc(it.annotation_id)}</span>
+      <span class="fn" title="${esc(it.image_filename)}">${esc(it.image_filename)}</span>
     `;
     li.addEventListener("click", () => selectIndex(idx));
     ul.appendChild(li);

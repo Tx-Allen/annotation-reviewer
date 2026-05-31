@@ -137,6 +137,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .btn-link { font-size: 12px; color: var(--primary); text-decoration: none; cursor: pointer; background: none; border: none; padding: 0; }
 .btn-link:hover { text-decoration: underline; }
 .btn-link.danger { color: var(--fail); }
+/* 结果导出按钮:醒目填充,和次要文字链明显区分,提示「这是最终成果导出」 */
+.btn-export { font-size: 13px; font-weight: 700; color: #fff; background: var(--primary); border: none; border-radius: 6px; padding: 7px 16px; cursor: pointer; box-shadow: 0 2px 6px var(--shadow); }
+.btn-export:hover { filter: brightness(1.08); }
+.btn-export:active { transform: translateY(1px); }
 
 .list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 .list li { padding: 8px 12px; border-bottom: 1px solid var(--border-divider); cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -348,10 +352,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
       </label>
       <label class="sample-opt">
         <input type="radio" name="sample" value="random" checked> 随机抽
-        <input type="number" id="sample-n" min="1" value="20">
+        <input type="number" id="sample-n" min="1" value="10">
         <select id="sample-n-unit">
-          <option value="count">条</option>
           <option value="pct">%</option>
+          <option value="count">条</option>
         </select>
       </label>
       <label class="sample-opt">
@@ -455,11 +459,11 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <span id="progress" class="progress">0 / 0</span>
       </div>
       <div class="actions-row">
-        <button class="btn-link" data-export="sample">导出抽样</button>
+        <button class="btn-export" data-export="sample">⬇ 导出抽样CSV</button>
         <button class="btn-link" data-export="reviewed">仅已审</button>
-        <button class="btn-link" data-export="full" id="export-full-btn">全部CSV</button>
-        <button class="btn-link" id="export-reannot">导出重标</button>
-        <button class="btn-link" id="export-annotate" style="display:none;">⬇ 导出标注CSV</button>
+        <button class="btn-export" data-export="full" id="export-full-btn">⬇ 全部CSV</button>
+        <button class="btn-export" id="export-reannot">⬇ 导出重标</button>
+        <button class="btn-export" id="export-annotate" style="display:none;">⬇ 导出标注CSV</button>
         <button class="btn-link" id="export-changed">仅改动</button>
         <button class="btn-link" id="export-lsjson" title="导出 Label Studio 可导入的 JSON">LS-JSON</button>
         <button class="btn-link" id="compare-summary">对比汇总</button>
@@ -517,7 +521,18 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
 <script>
 // ========== CSV 解析 ==========
-function parseCSV(text) {
+let lastCsvWarnings = [];
+// 选分隔符:.tsv 文件或首行 Tab 比逗号多 → 制表符;否则逗号(默认行为不变,向下兼容)
+function sniffDelim(text, name) {
+  if (/\.tsv$/i.test(name || '')) return '\t';
+  const firstLine = (String(text || '').split(/\r?\n/, 1)[0]) || '';
+  const tabs = (firstLine.match(/\t/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  return tabs > commas ? '\t' : ',';
+}
+function parseCSV(text, delim) {
+  delim = delim || ',';
+  lastCsvWarnings = [];
   const rows = [];
   let row = [], field = '', q = false;
   text = text.replace(/^﻿/, '');
@@ -528,26 +543,35 @@ function parseCSV(text) {
       else if (c === '"') q = false;
       else field += c;
     } else {
-      if (c === '"') q = true;
-      else if (c === ',') { row.push(field); field = ''; }
+      if (c === '"' && field === '') q = true;        // 仅字段开头的引号才进引号模式;字段中部的裸引号当普通字符(RFC4180 健壮性)
+      else if (c === delim) { row.push(field); field = ''; }
       else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
       else if (c === '\r') {}
       else field += c;
     }
   }
+  if (q) lastCsvWarnings.push('检测到未闭合的引号,可能有行被合并或截断');
   if (field !== '' || row.length) { row.push(field); rows.push(row); }
   return rows;
 }
 
 function csvToObjects(rows) {
   if (!rows.length) return { header: [], rows: [] };
-  const header = rows[0];
+  // 重复表头去重:后者加 _2/_3 后缀,避免同名列后者覆盖前者而丢列(唯一表头时行为完全不变,向下兼容)
+  const seen = {};
+  const header = rows[0].map(h => {
+    h = (h == null ? '' : h);
+    if (seen[h] != null) { seen[h] += 1; return `${h}_${seen[h]}`; }
+    seen[h] = 1; return h;
+  });
+  // 去掉公式注入防护前缀(与 csvQuote 对称),保证本工具导出再导入往返字节稳定
+  const deformula = (s) => (typeof s === 'string' && /^'[=+\-@]/.test(s)) ? s.slice(1) : s;
   const out = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!r.length || (r.length === 1 && !r[0])) continue;
     const o = {};
-    header.forEach((k, j) => { o[k] = r[j] !== undefined ? r[j] : ''; });
+    header.forEach((k, j) => { o[k] = deformula(r[j] !== undefined ? r[j] : ''); });
     out.push(o);
   }
   return { header, rows: out };
@@ -563,6 +587,7 @@ function extractFilename(url) {
 
 function csvQuote(v) {
   v = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; // CSV 公式注入防护(CWE-1236):Excel/Sheets 打开不当公式执行;导入侧对称去前缀,往返字节稳定
   return /[,"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
@@ -723,6 +748,8 @@ function normalizeConfig(cfg) {
     f.label = f.label || f.key;
     f.options = (f.options || []).map(o => typeof o === 'string' ? { value: o, hint: '' } : { value: o.value, hint: o.hint || '' });
   });
+  const seenKeys = new Set();
+  fields.forEach(f => { if (seenKeys.has(f.key)) throw new Error(`字段 key 重复:「${f.key}」(同名字段会共用一个编辑槽、相互覆盖)`); seenKeys.add(f.key); });
   return {
     version: cfg.version || 1, kind: 'annotation-config',
     name: cfg.name || '导入配置', image_field: cfg.image_field || '',
@@ -836,6 +863,14 @@ function serializeMulti(arr) {
   return JSON.stringify({ choices: arr });
 }
 
+// 条件字段依赖匹配:父字段若是「多选」,其单元格是 {"choices":[...]} 或逗号串,
+// 需判断 want 是否在所选集合内;单选父字段则退化为相等比较(行为与旧版一致,向下兼容)。
+function depMatches(depVal, wantVal) {
+  if (wantVal == null) return false;
+  if (String(depVal) === String(wantVal)) return true;
+  return parseMulti(depVal).map(String).includes(String(wantVal));
+}
+
 function validateRow(r, edits) {
   edits = edits || {};
   const issues = [];
@@ -843,7 +878,7 @@ function validateRow(r, edits) {
   currentSchema().forEach(f => {
     if (f.visibleWhen) {
       const dep = eff(f.visibleWhen.field);
-      if (dep !== f.visibleWhen.value) {
+      if (!depMatches(dep, f.visibleWhen.value)) {
         const cur = eff(f.key);
         if (cur && String(cur).trim()) {
           issues.push(`${shortLabel(f.label)} 应为空(object_type=${dep || '空'}),但有值「${cur}」`);
@@ -908,10 +943,11 @@ const state = {
 function sampleKey(csvName) { return `sample:${csvName}`; }
 function loadSampleIds(csvName) {
   const raw = localStorage.getItem(sampleKey(csvName));
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
 }
 function saveSampleIds(csvName, ids) {
-  localStorage.setItem(sampleKey(csvName), JSON.stringify(ids));
+  safeSet(sampleKey(csvName), JSON.stringify(ids)); // 存满不再抛错冲掉「开始」按钮,改走配额横幅;样本每次会重算,漏存非致命
 }
 function shuffle(arr, rng) {
   rng = rng || Math.random;
@@ -982,6 +1018,7 @@ const startBtn = $('#start-btn');
 const distributeBtn = $('#distribute-btn');
 let pendingCSV = null;
 let pendingAutofix = {};   // CSV 处理时记录被自动清空的越界值: annoId -> {字段: 原值}
+const REVIEW_FILTER_HTML = (document.getElementById('filter') || {}).innerHTML || ''; // 启动时存核对模式完整过滤项,标注模式改写后用于还原
 
 // ---- 标注配置(模板)导入 ----
 function refreshConfigBar() {
@@ -1017,6 +1054,7 @@ $('#config-input').addEventListener('change', async (e) => {
   } catch (err) {
     stat.textContent = '✗ 配置解析失败: ' + err.message; stat.className = 'status err';
   }
+  e.target.value = ''; // 允许改好同名文件后再次选中触发 change(否则修正重选无反应)
 });
 $('#config-export').addEventListener('click', () => {
   downloadJSON(`annotation-config-${(state.config.name || '配置').replace(/[^\w一-龥-]/g, '_')}.json`, JSON.parse(configToJSON()));
@@ -1041,7 +1079,7 @@ function applyAutoClean(rows, sink) {
     conds.forEach(f => {
       const dep = r[f.visibleWhen.field] ?? '';
       const cur = r[f.key];
-      if (dep !== f.visibleWhen.value && cur != null && String(cur).trim() !== '') {
+      if (!depMatches(dep, f.visibleWhen.value) && cur != null && String(cur).trim() !== '') {
         const id = String(r.annotation_id);
         (sink[id] = sink[id] || {})[f.key] = cur;
         r[f.key] = '';
@@ -1073,18 +1111,20 @@ csvInput.addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
   const text = await f.text();
-  const parsed = csvToObjects(parseCSV(text));
+  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, f.name)));
   ensureUniqueIds(parsed.rows);
   pendingCSV = { name: f.name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
   reprocessPendingCSV();
-  $('#csv-status').textContent = `✓ ${f.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列`;
-  $('#csv-status').className = 'status ok';
+  const warn = lastCsvWarnings.length ? ' · ⚠ ' + lastCsvWarnings.join(';') : '';
+  $('#csv-status').textContent = `✓ ${f.name} · ${parsed.rows.length} 行 · ${parsed.header.length} 列${warn}`;
+  $('#csv-status').className = warn ? 'status' : 'status ok';
+  e.target.value = ''; // 允许重新选择同名(已修正)文件再次触发 change
   updateButtons();
 });
 
 folderInput.addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
-  state.imageMap.clear();
+  resetImageMap();
   files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
   annotateFolderName = ((files[0] && files[0].webkitRelativePath) || '').split('/')[0] || '';
   $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
@@ -1263,6 +1303,7 @@ $('#dist-reviewers').addEventListener('input', () => {
 $('#dist-go').addEventListener('click', () => {
   const names = $('#dist-reviewers').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!names.length) { alert('请填至少一个检察员名字'); return; }
+  if (!$('#sample-seed').value.trim()) { $('#sample-seed').value = 'dist-' + Date.now(); } // 无种子则钉一个,保证预览/分发/各检察员拿到同一批可复现抽样
   const sampleIds = new Set(currentSampleIds().map(String));
   const sampleRows = pendingCSV.rows.filter(r => sampleIds.has(String(r.annotation_id)));
   if (!sampleRows.length) { alert('抽样为空'); return; }
@@ -1341,7 +1382,7 @@ $('#pack-cancel-btn').addEventListener('click', () => {
 
 $('#pack-folder-input').addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
-  state.imageMap.clear();
+  resetImageMap();
   files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
   // 算一下匹配率
   const col = pendingPack.image_column || 'image';
@@ -1396,7 +1437,7 @@ function refreshStateInfo() {
   const counts = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    const m = k && k.match(/^review:(.+?):/);
+    const m = k && k.match(/^review:(.+):[^:]+$/); // 贪婪取完整 csvName(末段=annotation_id),pack:* 不再被截成 'pack'
     if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
   }
   const entries = Object.entries(counts);
@@ -1460,12 +1501,14 @@ async function importProgress(e) {
 function reviewKey(annoId) { return `review:${state.csvName}:${annoId}`; }
 function loadReview(annoId) {
   const raw = localStorage.getItem(reviewKey(annoId));
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; } // 坏键不再让 buildIndex 整个崩、锁死全部进度
 }
 function reannotKey(annoId) { return `reannot:${state.csvName}:${annoId}`; }
 function loadReannot(annoId) {
   const raw = localStorage.getItem(reannotKey(annoId));
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
 // ---- 断点续跑(Tier1 会话指针) + 防误关草稿 ----
@@ -1484,7 +1527,13 @@ function saveSession() {
   } catch (e) {}
 }
 function loadSession() { try { return JSON.parse(localStorage.getItem('session:current')); } catch (e) { return null; } }
-function draftBucket() { return state.mode === 'review' ? 'review' : 'reannot'; } // review 与 reannot/annotate 的草稿分桶,避免跨模式串
+function draftBucket() {
+  // review 与 reannot/annotate 分桶;reannot 盲标再单独分桶,避免「纠错」未保存草稿/备注串进「盲标」表单。
+  // 向下兼容:correct 仍用旧的 'reannot' 键,annotate 也沿用 'reannot',旧草稿照常加载。
+  if (state.mode === 'review') return 'review';
+  if (state.mode === 'reannot' && state.subMode === 'blind') return 'reannot:blind';
+  return 'reannot';
+}
 function draftKey(id) { return `draft:${state.csvName}:${draftBucket()}:${id}`; }
 function loadDraft(id) { try { return JSON.parse(localStorage.getItem(draftKey(id))); } catch (e) { return null; } }
 function clearDraft(id) { try { localStorage.removeItem(draftKey(id)); } catch (e) {} }
@@ -1504,7 +1553,7 @@ function renderResumeBar() {
   if (!s || !s.csvName) { bar.style.display = 'none'; return; }
   bar.style.display = 'block';
   bar.className = 'resume-bar';
-  bar.innerHTML = `▶ 上次: <b>${escAttr(s.csvName)}</b> · 模式 ${s.mode === 'reannot' ? '重标' : '核对'} · 上次 #${s.lastAnnoId ?? '-'} · 已审 ${s.doneCount}/${s.sampleCount}`
+  bar.innerHTML = `▶ 上次: <b>${escAttr(s.csvName)}</b> · 模式 ${s.mode === 'reannot' ? '重标' : '核对'} · 上次 #${escAttr(s.lastAnnoId ?? '-')} · 已审 ${escAttr(s.doneCount)}/${escAttr(s.sampleCount)}`
     + ` <span style="color:var(--text-soft);">— 重新选回同名 CSV + 图片文件夹即可接着干,自动跳回上次那条</span>`
     + ` <button class="btn-link" id="resume-clear">清除</button>`
     + (fsSupported() ? ` <button class="btn-link" id="resume-oneclick">🔓 一键恢复(Chrome)</button>` : '');
@@ -1528,7 +1577,7 @@ async function idbGet(k) { const db = await idb(); return new Promise((res, rej)
 
 // 与 csvInput/folderInput 等价的加载,供句柄路径复用
 function setPendingCSVFromText(text, name) {
-  const parsed = csvToObjects(parseCSV(text));
+  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, name)));
   ensureUniqueIds(parsed.rows);
   pendingCSV = { name, header: parsed.header, rawRows: parsed.rows, rows: parsed.rows };
   reprocessPendingCSV();
@@ -1536,7 +1585,7 @@ function setPendingCSVFromText(text, name) {
   $('#csv-status').className = 'status ok';
 }
 function setImageMapFromFiles(files) {
-  state.imageMap.clear();
+  resetImageMap();
   files.forEach(f => state.imageMap.set((f.name || '').toLowerCase(), f));
   $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
   $('#folder-status').className = 'status ok';
@@ -1575,7 +1624,19 @@ async function oneClickResume() {
     setPendingCSVFromText(await (await h.csvHandle.getFile()).text(), h.csvName || h.csvHandle.name);
     setImageMapFromFiles(await dirHandleToFiles(h.dirHandle));
     const sess = loadSession();
+    const rememberedName = h.csvName || h.csvHandle.name;
+    if (sess && sess.csvName && sess.csvName !== rememberedName) {
+      alert(`提示:记住的文件是「${rememberedName}」,与上次会话「${sess.csvName}」不同,将按记住的文件继续。`);
+    }
     if (sess && sess.reviewer) reviewerInput.value = sess.reviewer;
+    // 恢复抽样范围:「全部审」会话会删掉 sample 键,默认回落 random 会重新随机抽样并覆盖原范围;
+    // 据会话补回正确单选(sampleCount>=totalRows 即「全部」),避免一键恢复反而缩小/改变审核范围。
+    try {
+      if (sess && sess.totalRows && sess.sampleCount >= sess.totalRows) {
+        const allRadio = document.querySelector('input[name="sample"][value="all"]');
+        if (allRadio) allRadio.checked = true;
+      }
+    } catch (e) {}
     updateButtons();
     startBtn.click(); // startBtn 内部读 loadSession → 自动续跑到上次位置
   } catch (e) {
@@ -1603,8 +1664,10 @@ function undoAutoClean() {
 
 function initApp() {
   $('#app').classList.add('show');
+  $('#setup').style.display = 'none'; $('#pack-setup').style.display = 'none'; // 进应用后藏启动页,杜绝滚回去重复「开始」造成的重复初始化
   $('#who').textContent = state.reviewer;
   if (state.mode === 'annotate') { initAnnotateApp(); return; }
+  $('#filter').innerHTML = REVIEW_FILTER_HTML; // 还原核对模式完整过滤项(用过标注模式会被改成 3 项)
   $('#csv-name').textContent = state.packMode ? `📦 任务包(${state.rows.length} 条)` : `CSV: ${state.csvName}`;
   $('#scope-info').textContent = state.rows.length < state.totalRows
     ? `抽样 ${state.rows.length}/${state.totalRows}`
@@ -1830,7 +1893,7 @@ function renderFields(r) {
   currentSchema().forEach(f => {
     if (f.visibleWhen) {
       const dep = effective(f.visibleWhen.field);
-      if (dep !== f.visibleWhen.value) return;
+      if (!depMatches(dep, f.visibleWhen.value)) return;
     }
 
     const sec = document.createElement('div');
@@ -1908,7 +1971,7 @@ function renderFields(r) {
   if (metaItems.length) {
     const meta = document.createElement('div');
     meta.className = 'meta-fields';
-    meta.innerHTML = metaItems.map(f => `<span><b>${f.label}:</b> ${escAttr(r[f.key])}</span>`).join('');
+    meta.innerHTML = metaItems.map(f => `<span><b>${escAttr(f.label)}:</b> ${escAttr(r[f.key])}</span>`).join('');
     fieldsEl.appendChild(meta);
   }
 
@@ -1953,7 +2016,7 @@ function saveReview(status) {
   idxUpdate(r); // 只更新这一行的内存索引;selectIndex 会重渲列表(去掉重复 renderList)
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
-  else selectIndex(state.index);
+  else { const prev = prevVisibleIndex(state.index); if (prev >= 0) selectIndex(prev); else if (passesFilter(state.rows[state.index])) selectIndex(state.index); else clearDetail(); }
 }
 
 // 清除核对标记(未审)
@@ -1964,7 +2027,7 @@ function unmarkReview() {
   idxUpdate(r); // 保留 state.edits/草稿:取消"核对标记"不应丢掉未保存的字段修改
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
-  else selectIndex(state.index);
+  else { const prev = prevVisibleIndex(state.index); if (prev >= 0) selectIndex(prev); else if (passesFilter(state.rows[state.index])) selectIndex(state.index); else clearDetail(); }
 }
 
 // 保存重标(纠错/盲标):把当前可见字段的最终值整套存为 reannot 记录
@@ -1976,7 +2039,7 @@ function saveReannot() {
   const eff = (k) => k in state.edits ? state.edits[k] : baseVal(k);
   const values = {};
   currentSchema().forEach(f => {
-    if (f.visibleWhen && eff(f.visibleWhen.field) !== f.visibleWhen.value) return; // 未激活分支不存
+    if (f.visibleWhen && !depMatches(eff(f.visibleWhen.field), f.visibleWhen.value)) return; // 未激活分支不存
     const v = eff(f.key);
     if (v != null && String(v) !== '') values[f.key] = v;
   });
@@ -1994,7 +2057,7 @@ function saveReannot() {
   idxUpdate(r); // 只更新这一行的内存索引;selectIndex 会重渲列表(去掉重复 renderList)
   const next = nextVisibleIndex(state.index);
   if (next >= 0) selectIndex(next);
-  else selectIndex(state.index);
+  else { const prev = prevVisibleIndex(state.index); if (prev >= 0) selectIndex(prev); else if (passesFilter(state.rows[state.index])) selectIndex(state.index); else clearDetail(); }
 }
 
 // scope: 'sample'(当前抽样) | 'reviewed'(仅已审) | 'full'(整个 CSV)
@@ -2041,7 +2104,11 @@ function origVal(r, k) {
 // 最终值:重标值 > 核对修正 > 当前值
 function finalVal(r, k) {
   const ra = loadReannot(r.annotation_id);
-  if (ra && ra.values && k in ra.values) return ra.values[k];
+  if (ra) {
+    if (ra.values && k in ra.values) return ra.values[k];
+    // 重标记录存在但该字段未填:纠错(预填)=保留原值;盲标/标注=空。与 exportReannotCSV 统一,避免改动计数互相矛盾
+    return ra.mode === 'correct' ? (r[k] ?? '') : '';
+  }
   const rev = loadReview(r.annotation_id);
   if (rev && rev.edits && k in rev.edits) return rev.edits[k];
   return r[k] ?? '';
@@ -2076,7 +2143,7 @@ function exportReannotCSV() {
     cnt++;
     const merged = { ...r }, changed = [];
     keys.forEach(k => {
-      const fin = (ra.values && k in ra.values) ? ra.values[k] : '';
+      const fin = finalVal(r, k); // 与 compare/仅改动 统一口径(纠错未填=原值,盲标未填=空)
       const o = origVal(r, k);
       merged[k] = fin; merged['__orig_' + k] = o;
       if (String(o) !== String(fin)) changed.push(k);
@@ -2139,12 +2206,14 @@ function applyModeUI() {
   $('#save-reannot').textContent = isAnno ? '保存标注 (Enter)' : '保存重标 (Enter)';
 }
 
-let _unloadBound = false;
+let _appEventsBound = false;
 function bindAppEvents() {
-  if (!_unloadBound) {
-    _unloadBound = true;
-    window.addEventListener('beforeunload', () => { saveDraftCurrent(); saveSession(); });
-  }
+  // 这里绑定的都是页面初始就存在的静态节点,只需绑一次。
+  // 之前每次 initApp() 都重复绑定,导致再次进入应用(重新「开始」/「📸标注」/导入任务包/一键恢复)后
+  // 一次「导出CSV」会下载多份、快捷键/状态保存也会重复触发。
+  if (_appEventsBound) return;
+  _appEventsBound = true;
+  window.addEventListener('beforeunload', () => { saveDraftCurrent(); saveSession(); });
   document.querySelectorAll('#mode-seg .seg-btn').forEach(b => b.addEventListener('click', () => {
     if (state.index >= 0) saveDraftCurrent(); // 切模式前用旧 mode 把草稿存进对应桶
     state.edits = {};                          // 清脏编辑,避免带进新模式造成跨模式污染
@@ -2392,6 +2461,12 @@ function buildIndex() { state.idx = new Map(); state.rows.forEach(r => idxUpdate
 function idxOf(r) { return state.idx ? state.idx.get(r.annotation_id) : null; }
 function idxReannot(r) { const e = idxOf(r); return e ? e.reannot : !!loadReannot(r.annotation_id); }
 function idxExcluded(r) { const e = idxOf(r); return e ? e.excluded : loadExcluded(r.annotation_id); }
+// 换文件夹/重选时清掉旧 object-URL,避免同名文件显示上一个文件夹的旧图 + blob 泄漏
+function resetImageMap() {
+  imgUrlCache.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+  imgUrlCache.clear();
+  state.imageMap.clear();
+}
 // 图片 object-URL LRU(长会话避免内存暴涨/崩页)
 function cacheImgUrl(key, file) {
   let url = imgUrlCache.get(key);
@@ -2411,7 +2486,7 @@ function cacheImgUrl(key, file) {
 function visibleFieldsFor(r) {
   const blind = (state.mode === 'reannot' && state.subMode === 'blind') || state.mode === 'annotate';
   const eff = (k) => k in state.edits ? state.edits[k] : (blind ? '' : (r[k] ?? ''));
-  return currentSchema().filter(f => !f.visibleWhen || eff(f.visibleWhen.field) === f.visibleWhen.value);
+  return currentSchema().filter(f => !f.visibleWhen || depMatches(eff(f.visibleWhen.field), f.visibleWhen.value));
 }
 function advanceActiveField(r, key) {
   const vf = visibleFieldsFor(r);
@@ -2439,6 +2514,16 @@ function applyChoice(r, f, optValue) {
   const newValue = f.type === 'multiple' ? serializeMulti(newSel) : (newSel[0] || '');
   const origValue = f.type === 'multiple' ? serializeMulti(origSel) : (origSel[0] || '');
   if (newValue !== origValue) state.edits[f.key] = newValue; else delete state.edits[f.key];
+  // 改了父字段(如主分类)后,把依赖它、且新值已不激活其分支的子字段(子分类)一并清空,
+  // 否则旧子值会越界残留、触发「应为空」提示,看起来像同时存在两个分类。
+  if (currentSchema().some(g => g.visibleWhen && g.visibleWhen.field === f.key)) {
+    currentSchema().forEach(g => {
+      if (g.visibleWhen && g.visibleWhen.field === f.key && !depMatches(newValue, g.visibleWhen.value)) {
+        const childCur = (g.key in state.edits) ? state.edits[g.key] : (r[g.key] ?? '');
+        if (String(childCur).trim() !== '') state.edits[g.key] = ''; // 有值才清,避免凭空产生「已编辑」标记
+      }
+    });
+  }
   if (f.type === 'single' && newSel.length) advanceActiveField(r, f.key); // 单选自动跳到下一个字段
   renderFields(r);
 }

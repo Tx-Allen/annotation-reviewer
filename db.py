@@ -49,6 +49,17 @@ def extract_filename(image_url: str) -> str:
     return decoded.rsplit("/", 1)[-1]
 
 
+def _safe_edits(raw):
+    """edits_json → dict;坏数据/非对象一律退化为空 dict,避免 .items() 抛错让整库导出 500。"""
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+    except Exception:
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
 def import_csv(conn: sqlite3.Connection, csv_path: str, reset: bool = False) -> int:
     cur = conn.cursor()
     if reset:
@@ -96,9 +107,9 @@ def list_items(conn: sqlite3.Connection):
           SELECT r1.*
           FROM review r1
           JOIN (
-            SELECT annotation_id, MAX(reviewed_at) AS latest
+            SELECT annotation_id, MAX(id) AS latest_id
             FROM review GROUP BY annotation_id
-          ) r2 ON r1.annotation_id = r2.annotation_id AND r1.reviewed_at = r2.latest
+          ) r2 ON r1.annotation_id = r2.annotation_id AND r1.id = r2.latest_id
         ) r ON r.annotation_id = a.annotation_id
         ORDER BY a.annotation_id ASC
         """
@@ -132,7 +143,7 @@ def get_item(conn: sqlite3.Connection, anno_id: int) -> Optional[dict]:
             "status": r["status"],
             "reviewer": r["reviewer"],
             "note": r["note"],
-            "edits": json.loads(r["edits_json"]) if r["edits_json"] else {},
+            "edits": _safe_edits(r["edits_json"]),
             "reviewed_at": r["reviewed_at"],
         }
     return {
@@ -179,7 +190,7 @@ def export_rows(conn: sqlite3.Connection):
                 "status": r["status"],
                 "reviewer": r["reviewer"],
                 "note": r["note"] or "",
-                "edits": json.loads(r["edits_json"]) if r["edits_json"] else {},
+                "edits": _safe_edits(r["edits_json"]),
                 "reviewed_at": r["reviewed_at"],
             }
         merged = dict(payload)

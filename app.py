@@ -38,6 +38,18 @@ def get_conn():
     return db.connect(DB_PATH)
 
 
+def _same_origin(req):
+    """仅允许同源写入(防 CSRF)。无 Origin/Referer 时退而要求 JSON 内容类型。"""
+    from urllib.parse import urlparse
+
+    host = req.host  # 例如 127.0.0.1:5050
+    for hdr in ("Origin", "Referer"):
+        val = req.headers.get(hdr)
+        if val:
+            return urlparse(val).netloc == host
+    return bool(req.content_type and "application/json" in req.content_type)
+
+
 @app.route("/")
 def index():
     return render_template("review.html", reviewer=CONFIG["reviewer"])
@@ -61,7 +73,12 @@ def api_item(anno_id):
 
 @app.route("/api/review", methods=["POST"])
 def api_review():
-    data = request.get_json(force=True) or {}
+    # CSRF/内容类型加固:只接受同源的 application/json(跨站简单请求带不了该类型,也无预检)
+    if not _same_origin(request):
+        return jsonify({"error": "forbidden"}), 403
+    if not request.is_json:
+        return jsonify({"error": "expected application/json"}), 415
+    data = request.get_json(silent=True) or {}
     try:
         anno_id = int(data.get("annotation_id"))
     except (TypeError, ValueError):
@@ -69,6 +86,8 @@ def api_review():
     status = data.get("status", "")
     note = data.get("note", "") or ""
     edits = data.get("edits") or {}
+    if not isinstance(edits, dict):  # 防止 edits 非对象导致整库导出 500(export_rows .items())
+        return jsonify({"error": "edits must be an object"}), 400
     reviewer = data.get("reviewer") or CONFIG["reviewer"]
     conn = get_conn()
     try:
