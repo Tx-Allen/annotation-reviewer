@@ -50,10 +50,6 @@ th,td{border-bottom:1px solid var(--border-soft);padding:6px 9px;text-align:left
 th{position:sticky;top:0;background:var(--surface);z-index:1;font-size:12px;color:var(--text-muted);box-shadow:0 1px 0 var(--border);}
 td.key{font-weight:600;white-space:nowrap;}
 tr.r-chg{background:color-mix(in srgb,var(--chg-bg) 45%,transparent);}
-tr.r-add{background:color-mix(in srgb,var(--add-bg) 55%,transparent);}
-tr.r-del{background:color-mix(in srgb,var(--del-bg) 55%,transparent);}
-td .old{color:var(--fail);text-decoration:line-through;opacity:.8;}
-td .arrow{color:var(--text-faint);margin:0 4px;}
 td .new{color:var(--pass);font-weight:600;}
 td.changed{background:var(--chg-bg);}
 .badge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px;}
@@ -249,6 +245,7 @@ function renderSlots(){
   const host = $('#inputs');
   host.innerHTML = '';
   S.files.forEach((file, i) => {
+    file.label = labelFor(i);
     const wrap = document.createElement('div');
     wrap.className = 'field';
     wrap.style.cssText = 'display:inline-flex;margin-right:18px;';
@@ -267,7 +264,7 @@ function renderSlots(){
     });
   });
   host.querySelectorAll('button.rm').forEach(b=>{
-    b.addEventListener('click', ()=>{ S.files.splice(+b.dataset.i,1); afterFilesChanged(); });
+    b.addEventListener('click', ()=>removeSlot(+b.dataset.i));
   });
   const cap=$('#cap-note');
   cap.textContent = S.files.length>SOFT_CAP ? `已加 ${S.files.length} 份,并排列会变窄(建议 ≤ ${SOFT_CAP})。` : '';
@@ -277,6 +274,8 @@ function addSlot(){
   S.files.push({ id:'f'+(++slotSeq), label:labelFor(S.files.length), name:null, header:[], rows:[], loaded:false, warn:'' });
   renderSlots();
 }
+
+function removeSlot(i){ S.files.splice(i,1); afterFilesChanged(); }
 
 function loadInto(idx, name, text){
   const parsed = csvToObjects(parseCSV(text, sniffDelim(text, name)));

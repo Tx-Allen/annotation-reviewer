@@ -114,3 +114,17 @@ test('fewer than 2 loaded files: key-select disabled, no result card', () => {
   assert.equal(ctx.document.querySelector('#key-select').disabled, true, 'key-select disabled');
   assert.equal(ctx.document.querySelector('#result-card').style.display, 'none', 'result hidden');
 });
+
+test('removeSlot re-stamps labels to positions (no stale 文件N after removal)', () => {
+  const ctx = loadPage();
+  ctx.addSlot();                                            // 3 slots
+  ctx.document.querySelector('#diff-only').checked = false;
+  ctx.loadInto(0, 'a.csv', A);
+  ctx.loadInto(1, 'b.csv', B);
+  ctx.loadInto(2, 'c.csv', C);
+  ctx.removeSlot(1);                                        // drop the middle file (b)
+  const thead = ctx.document.querySelector('#diff-table thead').innerHTML;
+  assert.match(thead, /文件1/);
+  assert.match(thead, /文件2/);
+  assert.doesNotMatch(thead, /文件3/, 'no stale 文件3 label after removal');
+});
