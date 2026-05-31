@@ -396,11 +396,13 @@ function exportDiff(){
 }
 
 // ===== 事件 =====
-$('#old-input').addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f)return; f._text=await f.text(); loadFile(f,'old'); e.target.value=''; });
-$('#new-input').addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f)return; f._text=await f.text(); loadFile(f,'new'); e.target.value=''; });
+$('#add-file').addEventListener('click', ()=>{ addSlot(); });
 $('#key-select').addEventListener('change', e=>{ S.keyCol=e.target.value; compare(); });
 $('#diff-only').addEventListener('change', render);
 $('#export-diff').addEventListener('click', exportDiff);
+
+// start with two empty slots
+addSlot(); addSlot();
 </script>
 </body>
 </html>

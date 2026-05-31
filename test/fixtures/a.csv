@@ -1,0 +1,4 @@
+annotation_id,label,score,onlyA
+1,cat,0.9,x
+2,cat,0.8,y
+3,dog,0.5,z
