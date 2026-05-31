@@ -18,7 +18,7 @@ const coreSrc = html.slice(s, e);
 let collected = null;
 globalThis.__COLLECT_CORE__ = (o) => { collected = o; };
 try {
-  vm.runInThisContext(coreSrc, { filename: 'compare-core.js' });
+  vm.runInThisContext(`(function(){\n${coreSrc}\n})();`, { filename: 'compare-core.js' });
 } finally {
   delete globalThis.__COLLECT_CORE__;
 }

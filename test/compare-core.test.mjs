@@ -19,3 +19,13 @@ test('headerExtras returns some-but-not-all columns, de-duped', () => {
   const common = core.headerIntersection(files); // ['id','label']
   assert.deepEqual(core.headerExtras(files, common), ['note', 'extra']);
 });
+
+test('headerExtras de-dupes an extra column shared by multiple files', () => {
+  const files = [
+    { header: ['id', 'label', 'note'] },
+    { header: ['id', 'label', 'extra'] },
+    { header: ['id', 'label', 'note', 'extra'] },
+  ];
+  const common = core.headerIntersection(files); // ['id','label']
+  assert.deepEqual(core.headerExtras(files, common), ['note', 'extra']);
+});
