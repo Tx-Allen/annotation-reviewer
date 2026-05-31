@@ -164,7 +164,18 @@ function buildIndex(file, keyCol){
   file.rows.forEach(r=>{ const k=String(r[keyCol]??''); if(map.has(k)){dup++;return;} map.set(k,r); });
   return { map, dup };
 }
-function majorityOf(){}
+function majorityOf(values){
+  const counts=new Map();
+  values.forEach(v=>counts.set(v,(counts.get(v)||0)+1));
+  let top=0, majority=null, topCountHits=0;
+  for(const [v,c] of counts){
+    if(c>top){ top=c; majority=v; topCountHits=1; }
+    else if(c===top){ topCountHits++; }
+  }
+  const tie = topCountHits>1;
+  if(tie || values.length===0) majority=null;
+  return { majority, top, present: values.length, tie };
+}
 function computeNwayDiff(){}
 // ↓↓↓ collector MUST stay last; lists every pure fn the tests use ↓↓↓
 if (typeof globalThis.__COLLECT_CORE__ === 'function') {

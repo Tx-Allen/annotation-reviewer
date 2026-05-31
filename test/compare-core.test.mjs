@@ -42,3 +42,28 @@ test('buildIndex maps key->row, first occurrence wins, counts duplicates', () =>
   assert.equal(map.get('b').v, '2');
   assert.equal(map.size, 2);
 });
+
+test('majorityOf: strict majority', () => {
+  assert.deepEqual(core.majorityOf(['cat','cat','dog']),
+    { majority: 'cat', top: 2, present: 3, tie: false });
+});
+test('majorityOf: unanimous', () => {
+  assert.deepEqual(core.majorityOf(['cat','cat','cat']),
+    { majority: 'cat', top: 3, present: 3, tie: false });
+});
+test('majorityOf: 1:1 tie has no majority', () => {
+  const r = core.majorityOf(['cat','dog']);
+  assert.equal(r.majority, null);
+  assert.equal(r.tie, true);
+  assert.equal(r.top, 1);
+  assert.equal(r.present, 2);
+});
+test('majorityOf: 2:2 tie has no majority', () => {
+  const r = core.majorityOf(['a','a','b','b']);
+  assert.equal(r.majority, null);
+  assert.equal(r.tie, true);
+});
+test('majorityOf: empty -> null', () => {
+  assert.deepEqual(core.majorityOf([]),
+    { majority: null, top: 0, present: 0, tie: false });
+});
