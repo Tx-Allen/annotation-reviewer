@@ -33,4 +33,5 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@4 pages deploy dist --project-name datareviewer --branch main --commit-dirty=true
+        # 显式传 ASCII commit message:wrangler 默认会把 git 提交信息发给 CF,含 emoji/特殊字符时报 8000111(invalid UTF-8)
+        run: npx --yes wrangler@4 pages deploy dist --project-name datareviewer --branch main --commit-dirty=true --commit-hash "$GITHUB_SHA" --commit-message "deploy $GITHUB_SHA"
