@@ -372,18 +372,27 @@ function render(){
 
 function exportDiff(){
   const d=S.diff; if(!d){alert('还没有对比结果');return;}
-  const rows=d.rows.filter(r=>r.status!=='same');
-  if(!rows.length){alert('没有差异(改动/新增/删除)可导出');return;}
+  const rows=d.rows.filter(r=>r.status==='diff');
+  if(!rows.length){alert('没有分歧行可导出');return;}
   const header=[d.keyCol,'__status'];
-  d.fields.forEach(f=>{header.push(f); header.push('__old_'+f);});
+  d.fields.forEach(f=>{
+    d.labels.forEach(lb=>header.push(f+'__'+lb));
+    header.push(f+'__majority');
+    header.push(f+'__agree');
+  });
   const lines=[header.map(csvQuote).join(',')];
   rows.forEach(r=>{
-    const line=[csvQuote(r.key),csvQuote(r.status)];
-    d.fields.forEach(f=>{ const c=r.cells[f]; line.push(csvQuote(c.new)); line.push(csvQuote(c.old)); });
+    const statusCol = r.missingIn.length ? ('diff(缺 '+r.missingIn.join(',')+')') : 'diff';
+    const line=[csvQuote(r.key), csvQuote(statusCol)];
+    d.fields.forEach(f=>{
+      const c=r.cells[f];
+      c.values.forEach(v=>line.push(csvQuote(v.present?v.value:'')));
+      line.push(csvQuote(c.majority??''));
+      line.push(csvQuote(c.agree));
+    });
     lines.push(line.join(','));
   });
-  const oldName=(S.old&&S.old.name||'old').replace(/[:\\/]/g,'_').replace(/\.(csv|tsv)$/i,'');
-  downloadFile(`diff-${oldName}-vs-new-${new Date().toISOString().slice(0,10)}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+  downloadFile(`diff-nway-${d.labels.length}files.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
 }
 
 // ===== 事件 =====
