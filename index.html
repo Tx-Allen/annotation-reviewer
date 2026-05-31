@@ -316,8 +316,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
       <button type="button" class="btn-link" id="config-reset">重置默认</button>
     </div>
     <label class="sample-opt" style="margin-top:6px;">
-      <input type="checkbox" id="autoclean-toggle" checked>
-      自动清理条件字段越界值(LS 导出残留,默认开)
+      <input type="checkbox" id="autoclean-toggle">
+      自动清理条件字段越界值(LS 导出残留;<b>默认关</b>,需要时手动勾选——否则越界值保留,由人工逐条处理)
     </label>
   </div>
 
@@ -1095,7 +1095,7 @@ function reprocessPendingCSV() {
   pendingAutofix = {};
   const tog = $('#autoclean-toggle');
   pendingCSV.rows = pendingCSV.rawRows.map(r => ({ ...r }));
-  if (!tog || tog.checked) applyAutoClean(pendingCSV.rows, pendingAutofix);
+  if (tog && tog.checked) applyAutoClean(pendingCSV.rows, pendingAutofix); // 默认关:不自动改数据,越界值保留交人工手动处理
   updateColumnDetection();
   updateSamplingUI();
 }
