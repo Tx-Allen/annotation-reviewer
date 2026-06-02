@@ -529,10 +529,21 @@ let lastCsvWarnings = [];
 // 选分隔符:.tsv 文件或首行 Tab 比逗号多 → 制表符;否则逗号(默认行为不变,向下兼容)
 function sniffDelim(text, name) {
   if (/\.tsv$/i.test(name || '')) return '\t';
-  const firstLine = (String(text || '').split(/\r?\n/, 1)[0]) || '';
-  const tabs = (firstLine.match(/\t/g) || []).length;
-  const commas = (firstLine.match(/,/g) || []).length;
-  return tabs > commas ? '\t' : ',';
+  // 在「首个逻辑记录」上按引号感知统计字段数,取分隔出字段更多者;
+  // 避免引号字段内含 Tab 把逗号 CSV 误判成 TSV(向下兼容:普通逗号表头仍判逗号)
+  const countFields = (s, d) => {
+    let n = 1, q = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (q) { if (c === '"') { if (s[i + 1] === '"') i++; else q = false; } }
+      else if (c === '"') q = true;
+      else if (c === d) n++;
+      else if (c === '\n') break; // 只看第一条逻辑记录(引号内换行不在此 break)
+    }
+    return n;
+  };
+  const t = String(text || '');
+  return countFields(t, '\t') > countFields(t, ',') ? '\t' : ',';
 }
 function parseCSV(text, delim) {
   delim = delim || ',';
@@ -562,22 +573,25 @@ function parseCSV(text, delim) {
 function csvToObjects(rows) {
   if (!rows.length) return { header: [], rows: [] };
   // 重复表头去重:后者加 _2/_3 后缀,避免同名列后者覆盖前者而丢列(唯一表头时行为完全不变,向下兼容)
-  const seen = {};
+  const seen = Object.create(null); // 防 CSV 列名撞 Object.prototype 成员(toString/constructor/__proto__)被误判重复、列被破坏
   const header = rows[0].map(h => {
     h = (h == null ? '' : h);
-    if (seen[h] != null) { seen[h] += 1; return `${h}_${seen[h]}`; }
+    if (seen[h] !== undefined) { seen[h] += 1; return `${h}_${seen[h]}`; }
     seen[h] = 1; return h;
   });
   // 去掉公式注入防护前缀(与 csvQuote 对称),保证本工具导出再导入往返字节稳定
-  const deformula = (s) => (typeof s === 'string' && /^'[=+\-@]/.test(s)) ? s.slice(1) : s;
+  const deformula = (s) => (typeof s === 'string' && /^'[=+\-@\t\r]/.test(s)) ? s.slice(1) : s; // 与 csvQuote 注入防护前缀对称(含 \t\r),导出再导入字节稳定
   const out = [];
+  let raggedRows = 0, raggedExtra = 0;
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!r.length || (r.length === 1 && !r[0])) continue;
     const o = {};
     header.forEach((k, j) => { o[k] = deformula(r[j] !== undefined ? r[j] : ''); });
+    if (r.length > header.length) { raggedRows++; raggedExtra = Math.max(raggedExtra, r.length - header.length); } // 列数多于表头:多余单元格被忽略,需告警
     out.push(o);
   }
+  if (raggedRows) lastCsvWarnings.push(`有 ${raggedRows} 行列数多于表头(最多多 ${raggedExtra} 列),多余列已被忽略 — 检查是否漏给含分隔符的值加引号`);
   return { header, rows: out };
 }
 
@@ -674,8 +688,12 @@ async function readZip(buf) { // ArrayBuffer -> [{name, data:Uint8Array}]
     let data;
     if (e.method === 0) data = comp;
     else if (e.method === 8) {
-      if (typeof DecompressionStream === 'undefined') throw new Error('此浏览器不支持解压 zip(请用 Chrome/Edge,或改用 JSON 任务包)');
-      data = new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      if (typeof DecompressionStream === 'undefined') throw new Error('此浏览器太旧、不支持解压 zip(需 Chrome/Edge 80+ · Firefox 113+ · Safari 16.4+),或改用 STORE 打包/JSON 任务包');
+      try {
+        data = new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      } catch (err) {
+        throw new Error('解压 zip 失败(浏览器可能不支持 deflate-raw):' + ((err && err.message) || err) + ' — 可改用 STORE 方式打包或 JSON 任务包');
+      }
     } else throw new Error('不支持的 zip 压缩方式: ' + e.method);
     out.push({ name: e.name, data });
   }
@@ -1320,6 +1338,7 @@ function currentSampleIds() {
 
 startBtn.addEventListener('click', () => {
   state.csvName = pendingCSV.name;
+  guardDatasetIdentity(pendingCSV.name, pendingCSV.header, pendingCSV.rows.length); // H1:同名不同内容数据集告警
   state.header = pendingCSV.header;
   state.fullRows = pendingCSV.rows.slice();
   state.totalRows = pendingCSV.rows.length;
@@ -1464,6 +1483,10 @@ $('#pack-input').addEventListener('change', async (e) => {
           state.imageMap.set(base.toLowerCase(), new File([en.data], base));
         }
       });
+      // 4.4 降内存峰值:imageMap 已持有图片副本,释放 readZip 解压数组里的第二份拷贝;大图集给出警告
+      let zipBytes = 0; state.imageMap.forEach(file => { zipBytes += (file && file.size) || 0; });
+      entries.forEach(en => { en.data = null; });
+      if (zipBytes > 500 * 1024 * 1024) alert('⚠ 这个 zip 任务包解压后约 ' + Math.round(zipBytes / 1048576) + 'MB 图片会常驻内存。大图集建议改用「② 选图片文件夹」方式加载(几乎不占内存),以免标签页卡顿或崩溃。');
       enterPackMode(pack);
       packFolderReady('来自 zip 的 ' + state.imageMap.size + ' 张图');
     } else {
@@ -1588,13 +1611,35 @@ function exportProgress() {
   downloadJSON(`reviewer-progress-${new Date().toISOString().slice(0,10)}.json`, data);
 }
 
+function datasetFingerprint(header, rowCount) {
+  const sep = String.fromCharCode(31);
+  const s = (header || []).join(sep) + sep + '#' + (rowCount || 0);
+  let h = 0x811c9dc5; // FNV-1a 32-bit
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+function guardDatasetIdentity(name, header, rowCount) {
+  // H1:进度键只按文件名命名空间,两个同名但内容不同的数据集会串台。这里不改键(向下兼容、不动既有进度),
+  // 而是在加载「同名但表头/行数指纹不同、且已有进度」的数据集时显眼告警,让用户确认是不是同一份。
+  try {
+    const fp = datasetFingerprint(header, rowCount), mk = 'nsfp:' + name;
+    const prev = localStorage.getItem(mk);
+    let hasProgress = false;
+    const pfx = ['review:' + name + ':', 'reannot:' + name + ':', 'excluded:' + name + ':'];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && pfx.some(p => k.indexOf(p) === 0)) { hasProgress = true; break; } }
+    if (prev && prev !== fp && hasProgress) {
+      alert('⚠ 检测到与已有进度同名、但内容不同(表头或行数变了)的数据集「' + name + '」。本工具按文件名保存进度,继续可能把上一份的判定/编辑串到这一份;请确认是同一份数据再继续,或把 CSV 改个名后重新导入。');
+    }
+    try { localStorage.setItem(mk, fp); } catch (e) {}
+  } catch (e) {}
+}
 async function importProgress(e) {
   const f = e.target.files[0];
   if (!f) return;
   try {
     const text = (await f.text()).replace(/^﻿/, ''); // 容旧版导出残留的 BOM
     const data = JSON.parse(text);
-    const tsOf = (v) => { try { return Date.parse((v && (v.reviewed_at || v.annotated_at)) || '') || 0; } catch (e) { return 0; } };
+    const tsOf = (v) => { try { return Date.parse((v && (v.reviewed_at || v.annotated_at || v.at || v.updated_at)) || '') || 0; } catch (e) { return 0; } };
     let added = 0, updated = 0, kept = 0, fail = 0;
     Object.entries(data).forEach(([k, v]) => {
       if (!/^(review:|reannot:|sample:|session:|config:|draft:|excluded:)/.test(k)) return;
@@ -1602,11 +1647,28 @@ async function importProgress(e) {
       const cur = localStorage.getItem(k);
       if (cur == null) { if (safeSet(k, incoming)) added++; else fail++; return; }
       if (cur === incoming) { kept++; return; }
-      // 冲突:带时间戳的 review/reannot 保留较新的,别让旧备份覆盖今天的活
-      if (/^(review:|reannot:)/.test(k)) {
-        let curObj = null; try { curObj = JSON.parse(cur); } catch (e) {}
-        if (curObj && tsOf(curObj) > tsOf(v)) { kept++; return; }
+      // 冲突解决,防旧备份静默覆盖更新的本地数据:
+      // 1) review/reannot/excluded 带时间戳:本地不旧于进来的则保留本地
+      if (/^(review:|reannot:|excluded:)/.test(k)) {
+        let curObj = null, inObj = null;
+        try { curObj = JSON.parse(cur); } catch (e) {}
+        try { inObj = (typeof v === 'object' && v) ? v : JSON.parse(incoming); } catch (e) {}
+        if (curObj && tsOf(curObj) >= tsOf(inObj)) { kept++; return; }
       }
+      // 2) sample:抽样 id 取并集,绝不让旧备份缩小当前抽样范围
+      if (/^sample:/.test(k)) {
+        try {
+          const a = JSON.parse(cur), b = JSON.parse(incoming);
+          if (Array.isArray(a) && Array.isArray(b)) {
+            const merged = JSON.stringify([...new Set([...a.map(String), ...b.map(String)])]);
+            if (merged === cur) { kept++; return; }
+            if (safeSet(k, merged)) updated++; else fail++;
+            return;
+          }
+        } catch (e) {}
+      }
+      // 3) config/draft:本地工作状态优先,旧备份不覆盖
+      if (/^(config:|draft:)/.test(k)) { kept++; return; }
       if (safeSet(k, incoming)) updated++; else fail++;
     });
     alert(`导入完成:新增 ${added}、覆盖 ${updated}、跳过 ${kept}(本地更新或相同)` + (fail ? `、失败 ${fail}(存储已满)` : ''));
@@ -1792,6 +1854,7 @@ function initApp() {
   { const exm = document.getElementById('exclude-modal'); if (exm) exm.remove(); }
   { const lb0 = document.getElementById('lightbox'); if (lb0) lb0.classList.remove('show'); }
   $('#setup').style.display = 'none'; $('#pack-setup').style.display = 'none'; // 进应用后藏启动页,杜绝滚回去重复「开始」造成的重复初始化
+  requestPersistentStorage(); // 申请持久化存储,降低进度被浏览器清掉的风险
   $('#who').textContent = state.reviewer;
   if (state.mode === 'annotate') { initAnnotateApp(); return; }
   $('#filter').innerHTML = REVIEW_FILTER_HTML; // 还原核对模式完整过滤项(用过标注模式会被改成 3 项)
@@ -1936,13 +1999,13 @@ function selectIndex(idx) {
     const url = cacheImgUrl(fnKey, file);
     img.src = url;
     img.alt = fn;
-    // 预取下一张,按住方向键连续切换更顺
-    const nx = nextVisibleIndex(idx);
-    if (nx >= 0) {
-      const nk = extractFilename(state.rows[nx][state.imageColumn]).toLowerCase();
+    // 预取上一张/下一张:前后翻页都顺,且 LRU 升到 64 不会把刚建的 URL 抖掉(L4)
+    [nextVisibleIndex(idx), prevVisibleIndex(idx)].forEach(ni => {
+      if (ni < 0) return;
+      const nk = extractFilename(state.rows[ni][state.imageColumn]).toLowerCase();
       const nf = state.imageMap.get(nk);
       if (nf) cacheImgUrl(nk, nf);
-    }
+    });
   } else {
     img.removeAttribute('src');
     img.alt = `图片不在选定文件夹: ${fn}`;
@@ -2432,16 +2495,32 @@ initTheme();
 // ========== 无导入标注模式(只选图片,从零标注) ==========
 let annotateFolderName = '';
 const IMG_EXT = /\.(jpe?g|png|webp|gif|bmp|avif|jfif)$/i;
+function migrateAnnotateIndexIds(orderedImgs) {
+  // H3 向下兼容:旧版 annotate 用「排序序号」当 annotation_id,本版改用文件名。
+  // 一次性把旧的 序号键 拷到 文件名键(仅当文件名键还不存在,非破坏),保住既有进度。
+  const ns = state.csvName, mk = 'migr:annoid:' + ns;
+  try { if (localStorage.getItem(mk)) return; } catch (e) { return; }
+  ['review:', 'reannot:', 'excluded:'].forEach(kind => {
+    orderedImgs.forEach((f, i) => {
+      const oldK = kind + ns + ':' + String(i + 1), newK = kind + ns + ':' + (f.name || '');
+      try { const ov = localStorage.getItem(oldK); if (ov != null && localStorage.getItem(newK) == null) localStorage.setItem(newK, ov); } catch (e) {}
+    });
+  });
+  try { localStorage.setItem(mk, '1'); } catch (e) {}
+}
 function enterAnnotateMode() {
   const imgs = [...state.imageMap.values()].filter(f => IMG_EXT.test(f.name || ''));
   if (!imgs.length) { alert('没找到图片文件。先在「② 选图片文件夹」里选一个含图片的文件夹(不需要 CSV)。'); return; }
   imgs.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   state.header = ['image'];
   state.imageColumn = 'image';
-  state.rows = imgs.map((f, i) => ({ annotation_id: String(i + 1), image: f.name }));
+  state.rows = imgs.map(f => ({ annotation_id: f.name, image: f.name })); // H3:用文件名当稳定 id(原用排序序号,增删图后 resume 会整体错位)
+  ensureUniqueIds(state.rows); // 同名文件(跨子文件夹)去重隔离
   state.fullRows = state.rows.slice();
   state.totalRows = state.rows.length;
   state.csvName = 'annotate:' + (annotateFolderName || ('imgs-' + state.rows.length));
+  migrateAnnotateIndexIds(imgs); // H3:把旧版「序号键」一次性迁到「文件名键」,保住既有标注
+  guardDatasetIdentity(state.csvName, state.header, state.rows.length); // H1
   state.reviewer = (reviewerInput.value || '').trim() || 'anonymous';
   state.mode = 'annotate';
   state.subMode = 'correct';
@@ -2580,6 +2659,7 @@ function exportExcludedList() {
 }
 // 过滤/排除后无可见行时:清空详情面板,避免对看不见的行做快捷操作
 function clearDetail() {
+  if (state.index >= 0) { try { saveDraftCurrent(); } catch (e) {} } // 切到空过滤前先存草稿,别丢未保存的字段/备注(M3)
   state.index = -1;
   { const xb = $('#exclude-btn'); if (xb) xb.disabled = true; document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.disabled = true; }); } // 无可显示项时禁用底部按钮，避免“假活按钮”点了没反应
   const img = $('#d-img'); if (img) { img.removeAttribute('src'); img.alt = ''; }
@@ -2612,7 +2692,7 @@ function showStorageBanner(msg) {
   b.querySelector('#sf-x').onclick = () => b.remove();
 }
 function safeSet(key, val) {
-  try { localStorage.setItem(key, val); return true; }
+  try { localStorage.setItem(key, val); maybeWarnStorage(); return true; }
   catch (e) { showStorageBanner('⛔ 浏览器存储已满 — 刚才这步可能<b>没存上</b>,请立刻导出备份、清理后再继续。'); return false; }
 }
 function localStorageBytes() {
@@ -2620,7 +2700,35 @@ function localStorageBytes() {
   for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (k.length + (localStorage.getItem(k) || '').length); }
   return n * 2; // UTF-16 近似字节
 }
-try { if (localStorageBytes() > 4 * 1024 * 1024) showStorageBanner('⚠ 浏览器存储已用超 ~80%,建议尽快导出备份并清理旧任务。'); } catch (e) {}
+let _storeWriteCount = 0;
+function maybeWarnStorage(force) {
+  _storeWriteCount++;
+  if (!force && _storeWriteCount % 30 !== 0) return; // 节流:每 ~30 次成功写复查一次,避免每次写都 O(N) 扫 localStorage
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(est => {
+        if (est && est.quota && est.usage / est.quota > 0.8) showStorageBanner('⚠ 浏览器存储已用超 ~80%,建议尽快导出备份并清理旧任务。');
+      }).catch(() => {});
+    } else if (localStorageBytes() > 4 * 1024 * 1024) {
+      showStorageBanner('⚠ 浏览器存储已用超 ~80%,建议尽快导出备份并清理旧任务。');
+    }
+  } catch (e) {}
+}
+function requestPersistentStorage() {
+  // 申请持久化存储,抵抗浏览器在存储压力/隐私策略下清掉本地进度(如 Safari/iOS 7 天驱逐);
+  // 特性检测,老浏览器/file:// 不支持则静默跳过(向下兼容)。
+  try {
+    if (navigator.storage && navigator.storage.persist && navigator.storage.persisted) {
+      navigator.storage.persisted().then(already => {
+        if (already) return;
+        navigator.storage.persist().then(granted => {
+          if (!granted) showStorageBanner('⚠ 浏览器未授予「持久化存储」,标注进度可能被自动清理 — 请定期点「导出备份」。');
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+  } catch (e) {}
+}
+maybeWarnStorage(true); // 加载时先查一次,之后由 safeSet 节流复查
 
 // 重复 annotation_id 会让多行共用同一 localStorage 键、互相覆盖 → 检测+隔离+告警
 function ensureUniqueIds(rows) {
@@ -2673,7 +2781,7 @@ function cacheImgUrl(key, file) {
   if (url) { imgUrlCache.delete(key); imgUrlCache.set(key, url); return url; }
   url = URL.createObjectURL(file);
   imgUrlCache.set(key, url);
-  while (imgUrlCache.size > 50) {
+  while (imgUrlCache.size > 64) {
     const oldest = imgUrlCache.keys().next().value;
     const ou = imgUrlCache.get(oldest);
     imgUrlCache.delete(oldest);
@@ -2718,9 +2826,12 @@ function applyChoice(r, f, optValue) {
   // 否则旧子值会越界残留、触发「应为空」提示,看起来像同时存在两个分类。
   if (currentSchema().some(g => g.visibleWhen && g.visibleWhen.field === f.key)) {
     currentSchema().forEach(g => {
-      if (g.visibleWhen && g.visibleWhen.field === f.key && !depMatches(newValue, g.visibleWhen.value)) {
+      if (!g.visibleWhen || g.visibleWhen.field !== f.key) return;
+      if (!depMatches(newValue, g.visibleWhen.value)) {
         const childCur = (g.key in state.edits) ? state.edits[g.key] : (r[g.key] ?? '');
-        if (String(childCur).trim() !== '') state.edits[g.key] = ''; // 有值才清,避免凭空产生「已编辑」标记
+        if (String(childCur).trim() !== '') state.edits[g.key] = ''; // 分支失活:有值才清,避免凭空产生「已编辑」标记
+      } else if (state.edits[g.key] === '' && String(r[g.key] ?? '').trim() !== '') {
+        delete state.edits[g.key]; // 父值切回、子分支重新激活:丢弃残留的「清空」编辑,否则把原本有值的子字段在导出里清成空(孤儿级联)
       }
     });
   }
@@ -2772,6 +2883,18 @@ function exportLSJSON() {
   img.addEventListener('dblclick', (e) => { e.stopPropagation(); scale = scale > 1 ? 1 : 2; if (scale === 1) { tx = 0; ty = 0; } apply(); });
   lb.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); moved = false; } }, true); // 仅“刚拖动过”的那一次点击不关闭；放大但未拖动时点击仍能关闭灯箱（否则放大后灯箱会卡死、全屏盖住下层删除按钮）
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lb.classList.contains('show')) lb.classList.remove('show'); });
+})();
+(function mobileFolderHint() {
+  // 兼容性:手机/平板浏览器(尤其 iOS Safari)无法选择整个图片文件夹,给出明确引导而非静默死路
+  try {
+    const ua = navigator.userAgent || '';
+    const isMobile = /iP(hone|od|ad)/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1) || /Android/.test(ua);
+    if (!isMobile) return;
+    ['#folder-status', '#pack-folder-status'].forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el) { el.textContent = '⚠ 手机/平板浏览器无法选择整个图片文件夹,请改用电脑版 Chrome/Edge/Firefox/Safari'; el.className = 'status err'; }
+    });
+  } catch (e) {}
 })();
 </script>
 </body>

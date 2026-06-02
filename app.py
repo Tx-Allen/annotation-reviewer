@@ -34,8 +34,16 @@ CONFIG = {
 }
 
 
+_CONN = None
+
+
 def get_conn():
-    return db.connect(DB_PATH)
+    # L5:复用单连接,避免每请求新开 SQLite 连接(句柄泄漏)+ 每次重跑建表 DDL。
+    # 单用户本地工具 + check_same_thread=False,共享一个连接是安全的。
+    global _CONN
+    if _CONN is None:
+        _CONN = db.connect(DB_PATH)
+    return _CONN
 
 
 def _same_origin(req):
