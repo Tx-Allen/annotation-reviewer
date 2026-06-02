@@ -188,12 +188,12 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .compare-row .cf { color: var(--text-faint); font-weight: normal; }
 .compare-row .ca { text-align: center; color: var(--text-dim); }
 
-.detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+.detail-body { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; overflow: hidden; } /* 行限高:高图/竖图缩放适配,字段区滚动,底部「保存」栏不被遮挡 */
 .img-wrap { background: var(--img-bg); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
 .img-wrap img { max-width: 100%; max-height: 100%; width: auto; height: auto; flex: 0 1 auto; min-height: 0; object-fit: contain; cursor: zoom-in; }
 .img-hint { color: var(--text-faint); font-size: 11px; padding: 6px 0; text-align: center; }
 
-.fields { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; overflow-y: auto; }
+.fields { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; overflow-y: auto; min-height: 0; }
 .field-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
 .field-row label { font-size: 12px; color: var(--text-soft); }
 .field-row input, .field-row select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; width: 100%; background: var(--surface); color: var(--text); }
@@ -265,7 +265,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
   .app.drawer-open .sidebar { transform: translateX(0); }
   .app.drawer-open::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 45; pointer-events: none; }
   .main { padding: 10px; padding-top: 50px; }
-  .detail-body { grid-template-columns: 1fr; gap: 10px; }
+  .detail-body { grid-template-columns: 1fr; grid-template-rows: 40vh minmax(0, 1fr); gap: 10px; } /* 手机:图固定 40vh,字段区滚动,保存/操作栏不被顶出屏幕 */
   .img-wrap { min-height: 40vh; }
   .detail-head, .detail-foot, .mode-bar { flex-wrap: wrap; row-gap: 8px; }
   .detail-head .spacer { display: none; }
@@ -467,6 +467,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-export" data-export="full" id="export-full-btn">⬇ 全部CSV</button>
         <button class="btn-export" id="export-reannot">⬇ 导出重标</button>
         <button class="btn-export" id="export-annotate" style="display:none;">⬇ 导出标注CSV</button>
+        <button class="btn-export" id="import-annotate" style="display:none;">⬆ 导入标注CSV</button>
+        <input id="import-annotate-input" type="file" accept=".csv,.tsv,text/csv" style="display:none;">
         <button class="btn-link" id="export-changed">仅改动</button>
         <button class="btn-link" id="export-lsjson" title="导出 Label Studio 可导入的 JSON">LS-JSON</button>
         <button class="btn-link" id="compare-summary">对比汇总</button>
@@ -2031,6 +2033,15 @@ function selectIndex(idx) {
 function renderFields(r) {
   const fieldsEl = $('#fields');
   fieldsEl.innerHTML = '';
+  if (state.mode === 'annotate') { // 顶部状态条:让标注员明确「选了就存、无需按钮」
+    const _as = document.createElement('div');
+    _as.id = 'autosave-status'; _as.className = 'field-meta';
+    _as.style.cssText = 'margin:-2px 0 10px;font-weight:600;';
+    const _saved = !!loadReannot(r.annotation_id);
+    _as.textContent = _saved ? '✓ 已自动保存（选了就存，无需按按钮）' : '○ 选任意选项即自动保存（无需按钮）';
+    _as.style.color = _saved ? '#16a34a' : 'var(--text-faint)';
+    fieldsEl.appendChild(_as);
+  }
   const blind = (state.mode === 'reannot' && state.subMode === 'blind') || state.mode === 'annotate';
   const baseVal = (k) => blind ? '' : (r[k] ?? '');
   const effective = (k) => k in state.edits ? state.edits[k] : baseVal(k);
@@ -2325,6 +2336,7 @@ function resetField(r, key) {
   state.edits[key] = '';
   currentSchema().forEach(g => { if (g.visibleWhen && g.visibleWhen.field === key) state.edits[g.key] = ''; });
   renderFields(r);
+  commitCurrent(); // 重置也算一次改动，选了就存
 }
 
 // 导出重标结果(每个 schema 字段=重标值,加 __orig_/__reannot_*)
@@ -2402,7 +2414,7 @@ function applyModeUI() {
   document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.style.display = (isRe || isAnno) ? 'none' : ''; });
   $('#save-reannot').style.display = (isRe || isAnno) ? '' : 'none';
   $('#skip-reannot').style.display = (isRe || isAnno) ? '' : 'none';
-  $('#save-reannot').textContent = isAnno ? '保存标注 (Enter)' : '保存重标 (Enter)';
+  $('#save-reannot').textContent = isAnno ? '保存并下一张 (Enter)' : '保存重标 (Enter)';
 }
 
 let _appEventsBound = false;
@@ -2545,6 +2557,7 @@ function initAnnotateApp() {
   ['[data-export]', '#export-reannot', '#export-changed', '#compare-summary'].forEach(sel =>
     document.querySelectorAll(sel).forEach(b => { b.style.display = 'none'; }));
   $('#export-annotate').style.display = '';
+  { const _ib = $('#import-annotate'); if (_ib) _ib.style.display = ''; } // 标注模式才显示「导入标注CSV」
   applyModeUI();
   bindAppEvents();
   buildIndex();
@@ -2581,6 +2594,76 @@ function exportAnnotateCSV() {
 }
 { const _ab = $('#annotate-btn'); if (_ab) _ab.addEventListener('click', enterAnnotateMode); }
 { const _ea = $('#export-annotate'); if (_ea) _ea.addEventListener('click', exportAnnotateCSV); }
+{ const _ia = $('#import-annotate'), _iai = $('#import-annotate-input');
+  if (_ia && _iai) {
+    _ia.addEventListener('click', () => _iai.click());
+    _iai.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; try { await importAnnotateCSV(f); } catch (err) { alert('导入失败:' + (err && err.message || err)); } });
+  } }
+
+// 顶部「已自动保存」状态条的轻量更新(选了就存后即时翻成 ✓,不重渲整块字段)
+function setAutosaveStatus(saved) {
+  const el = document.getElementById('autosave-status');
+  if (!el) return;
+  el.textContent = saved ? '✓ 已自动保存（选了就存，无需按按钮）' : '○ 选任意选项即自动保存（无需按钮）';
+  el.style.color = saved ? '#16a34a' : 'var(--text-faint)';
+}
+
+// ========== 导入标注CSV:把之前导出的标注重新写回 reannot,显示成「已标」可续标/重导 ==========
+// 兼容应用自带「导出标注CSV」与控制台恢复脚本两种表头;按文件名对回当前图片文件夹。
+async function importAnnotateCSV(file) {
+  if (state.mode !== 'annotate') { alert('请先「📸 只选图片·从零标注」进入标注模式,再导入标注 CSV。'); return; }
+  if (!file) return;
+  let text;
+  try { text = await file.text(); } catch (e) { alert('读取文件失败:' + (e && e.message || e)); return; }
+  const parsed = csvToObjects(parseCSV(text, sniffDelim(text, file.name)));
+  if (!parsed.rows.length) { alert('这个 CSV 没有数据行。'); return; }
+  const byName = new Map();
+  state.rows.forEach(r => byName.set(String(r.annotation_id).toLowerCase(), r));
+  // 1) 找图片列:与当前图片文件夹文件名匹配最多的那一列
+  let imgCol = null, best = -1;
+  parsed.header.forEach(col => {
+    let m = 0;
+    parsed.rows.forEach(r => { const fn = extractFilename(r[col] || ''); if (fn && byName.has(fn.toLowerCase())) m++; });
+    if (m > best) { best = m; imgCol = col; }
+  });
+  if (best <= 0) { alert('CSV 里没有一列的文件名能对上当前图片文件夹。\n请确认:① 选的是同一个图片文件夹;② CSV 里有图片文件名那一列(如 image)。'); return; }
+  // 2) 字段列 = 与当前配置字段同名的列(__ 开头的元数据列除外)
+  const schemaKeys = currentSchema().map(f => f.key);
+  const fieldCols = parsed.header.filter(h => schemaKeys.includes(h));
+  if (!fieldCols.length && !confirm('CSV 里没有和当前配置字段同名的列(如 ' + schemaKeys.slice(0, 3).join('、') + ' …)。\n可能是配置没选对。仍要继续吗?(会把这些图标成「已标」但字段为空)')) return;
+  // 3) 覆盖确认
+  const existing = state.rows.filter(r => loadReannot(r.annotation_id)).length;
+  if (existing && !confirm('当前已有 ' + existing + ' 张图带标注。\n导入会用 CSV 覆盖同名图片的标注,继续?')) return;
+  // 4) 逐行写回 reannot
+  let ok = 0, skip = 0, full = false;
+  parsed.rows.forEach(row => {
+    const fn = extractFilename(row[imgCol] || '');
+    const r = fn ? byName.get(fn.toLowerCase()) : null;
+    if (!r) { skip++; return; }
+    const values = {};
+    fieldCols.forEach(k => { const v = row[k]; if (v != null && String(v).trim() !== '') values[k] = v; });
+    if (!Object.keys(values).length) { skip++; return; } // 该行没有任何标注值:不写,避免幽灵「已标」
+    const rec = {
+      annotator: row['__annotator'] || state.reviewer || 'imported',
+      mode: 'annotate', values,
+      note: row['__note'] || '',
+      annotated_at: row['__annotated_at'] || row['__at'] || new Date().toISOString(),
+    };
+    if (!safeSet(reannotKey(r.annotation_id), JSON.stringify(rec))) { full = true; return; }
+    clearDraft(r.annotation_id);
+    ok++;
+  });
+  buildIndex();
+  renderList();
+  const sel = state.index >= 0 ? state.index : firstVisibleIndex();
+  if (sel >= 0) selectIndex(sel);
+  saveSession();
+  let msg = '✅ 导入完成:写回 ' + ok + ' 张图的标注。';
+  if (skip) msg += '\n跳过 ' + skip + ' 行(文件名对不上当前文件夹,或该行没有标注值)。';
+  if (full) msg += '\n⚠ 浏览器存储已满,有部分没写进去,请清理后重试。';
+  alert(msg);
+}
+{ const _nt = $('#note'); if (_nt) _nt.addEventListener('input', () => { try { commitCurrent(); } catch (e) {} }); } // 标注模式:改备注也即时落地（此函数自带模式判断）
 
 // ========== 删除/排除图片(不属于本数据集;软排除,不动磁盘原图) ==========
 function afterExcludeChange(r) {
@@ -2938,6 +3021,45 @@ function applyChoice(r, f, optValue) {
   }
   if (f.type === 'single' && newSel.length) advanceActiveField(r, f.key); // 单选自动跳到下一个字段
   renderFields(r);
+  commitCurrent(); // 标注模式「选了就存」:此函数自带模式判断,核对/重标模式直接返回
+}
+
+// ========== 标注模式「选了就存」 ==========
+// 每次改动(选选项/重置/改备注)立刻把当前这张图的标注落地为正式 reannot 记录,且【不翻页】,
+// 根治「没按回车 = 只存进 draft 草稿 = 导出读不到」的丢数据坑(导出只读 reannot)。
+// 仅作用于 annotate 模式;核对(review)有 ✓/✗、重标(reannot)有回车,语义不变,故此函数对它们直接 return。
+function commitCurrent() {
+  if (state.index < 0 || !state.csvName || state.mode !== 'annotate') return;
+  const r = state.rows[state.index];
+  const eff = (k) => (k in state.edits) ? state.edits[k] : ''; // annotate 一律盲标,基准值为空
+  const values = {};
+  currentSchema().forEach(f => {
+    if (f.visibleWhen && !depMatches(eff(f.visibleWhen.field), f.visibleWhen.value)) return; // 未激活分支不存
+    const v = eff(f.key);
+    if (v != null && String(v) !== '') values[f.key] = v;
+  });
+  const had = !!loadReannot(r.annotation_id);
+  if (!Object.keys(values).length) { // 选项全取消:撤回正式记录 + 清草稿,回到「未标」,不留幽灵
+    try { localStorage.removeItem(reannotKey(r.annotation_id)); } catch (e) {}
+    clearDraft(r.annotation_id);
+    if (had) { idxUpdate(r); renderList(); }
+    setAutosaveStatus(false);
+    return;
+  }
+  const rec = {
+    annotator: state.reviewer, mode: 'annotate', values,
+    note: ($('#note') || {}).value || '', annotated_at: new Date().toISOString(),
+  };
+  if (!safeSet(reannotKey(r.annotation_id), JSON.stringify(rec))) { // 存满:退回草稿保命,只提示一次
+    try { saveDraftCurrent(); } catch (e) {}
+    { const _as = document.getElementById('autosave-status'); if (_as) { _as.textContent = '⚠ 存储已满:仅暂存为草稿,请尽快导出备份'; _as.style.color = '#dc2626'; } } // 存满时状态条不能谎称已保存
+    if (!commitCurrent._warned) { commitCurrent._warned = true; alert('⛔ 浏览器存储已满,刚才的选择只能先暂存为草稿。请点底部「导出备份」并清理后再继续标注。'); }
+    return;
+  }
+  clearDraft(r.annotation_id); // 已正式提交,草稿多余
+  idxUpdate(r);
+  setAutosaveStatus(true); // 顶部「已自动保存」状态条
+  if (!had) renderList(); // 首次提交才需刷新列表的「已标」点 + 进度计数;后续同行改动不动列表,避免卡顿
 }
 
 // ========== P2 互通:导出 Label Studio 可导入 JSON ==========
