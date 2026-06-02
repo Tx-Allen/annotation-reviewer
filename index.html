@@ -155,7 +155,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .list .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
-.detail { display: flex; flex-direction: column; flex: 1; gap: 12px; }
+.detail { display: flex; flex-direction: column; flex: 1; gap: 12px; min-height: 0; } /* 关键:不写 min-height:0,高图会把 .detail 撑高到图片原高、把底部保存栏顶出 .main 裁剪区 */
 .detail-head { display: flex; align-items: center; gap: 10px; padding-right: 130px; } /* 右上角固定主题切换钮(z-1003)悬浮在此行右端,留出空位免得盖住「下一条 (K)」 */
 .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--badge-bg); }
 .badge.pass { background: var(--pass-bg); color: var(--pass-fg); }
