@@ -156,7 +156,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 
 .main { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
 .detail { display: flex; flex-direction: column; flex: 1; gap: 12px; }
-.detail-head { display: flex; align-items: center; gap: 10px; }
+.detail-head { display: flex; align-items: center; gap: 10px; padding-right: 130px; } /* 右上角固定主题切换钮(z-1003)悬浮在此行右端,留出空位免得盖住「下一条 (K)」 */
 .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--badge-bg); }
 .badge.pass { background: var(--pass-bg); color: var(--pass-fg); }
 .badge.fail { background: var(--fail-bg); color: var(--fail-fg); }
@@ -166,6 +166,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
 .spacer { flex: 1; }
 .btn { padding: 6px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text); }
 .btn:hover { background: var(--hover); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn-pass { border-color: var(--pass); color: var(--pass); }
 .btn-fail { border-color: var(--fail); color: var(--fail); }
 .btn-doubt { border-color: var(--doubt); color: var(--doubt); }
@@ -262,12 +263,13 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
   .app { position: relative; }
   .sidebar { position: absolute; left: 0; top: 0; height: 100%; z-index: 50; width: 84%; min-width: 0; max-width: 320px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: 2px 0 16px rgba(0,0,0,.35); }
   .app.drawer-open .sidebar { transform: translateX(0); }
-  .app.drawer-open::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 45; }
+  .app.drawer-open::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 45; pointer-events: none; }
   .main { padding: 10px; padding-top: 50px; }
   .detail-body { grid-template-columns: 1fr; gap: 10px; }
   .img-wrap { min-height: 40vh; }
   .detail-head, .detail-foot, .mode-bar { flex-wrap: wrap; row-gap: 8px; }
   .detail-head .spacer { display: none; }
+  .detail-head { padding-right: 0; } /* 移动端 .main 已 padding-top:50px 把内容压到主题钮下方,无需右侧留白 */
   .choice-pill { padding: 8px 13px; font-size: 13px; }
   .btn, .seg-btn { padding: 8px 12px; }
   #note { min-width: 100%; order: -1; }
@@ -1356,6 +1358,7 @@ distributeBtn.addEventListener('click', () => {
 });
 
 $('#dist-cancel').addEventListener('click', () => $('#distribute-modal').classList.remove('show'));
+$('#distribute-modal').addEventListener('click', (e) => { if (e.target.id === 'distribute-modal') $('#distribute-modal').classList.remove('show'); }); // 点遮罩关闭，避免模态卡死盖住下层按钮
 
 $('#dist-reviewers').addEventListener('input', () => {
   const names = $('#dist-reviewers').value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -1784,6 +1787,10 @@ function undoAutoClean() {
 
 function initApp() {
   $('#app').classList.add('show');
+  // 兜底：进入应用时清掉任何遗留的全屏覆盖层（模态/灯箱），确保删除等按钮永远点得到
+  document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
+  { const exm = document.getElementById('exclude-modal'); if (exm) exm.remove(); }
+  { const lb0 = document.getElementById('lightbox'); if (lb0) lb0.classList.remove('show'); }
   $('#setup').style.display = 'none'; $('#pack-setup').style.display = 'none'; // 进应用后藏启动页,杜绝滚回去重复「开始」造成的重复初始化
   $('#who').textContent = state.reviewer;
   if (state.mode === 'annotate') { initAnnotateApp(); return; }
@@ -1905,6 +1912,7 @@ function selectIndex(idx) {
   if (idx < 0 || idx >= state.rows.length) return;
   if (idx !== state.index) { try { saveDraftCurrent(); } catch (e) {} } // 真正换行才存草稿;同一行(切模式)别清掉要恢复的草稿
   state.index = idx;
+  { const xb = $('#exclude-btn'); if (xb) xb.disabled = false; document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.disabled = false; }); } // 选中行后恢复底部操作按钮（与 clearDetail 的禁用配对）
   state.edits = {};
   state.activeField = null; // 每条重新从"第一个未填字段"作为数字键焦点
   renderList();
@@ -2502,7 +2510,10 @@ function afterExcludeChange(r) {
   else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); else clearDetail(); }
 }
 function doExclude(r, reason) {
-  if (!safeSet(excludeKey(r.annotation_id), JSON.stringify({ by: state.reviewer, at: new Date().toISOString(), reason: reason || '' }))) return;
+  if (!safeSet(excludeKey(r.annotation_id), JSON.stringify({ by: state.reviewer, at: new Date().toISOString(), reason: reason || '' }))) {
+    alert('⛔ 浏览器存储已满，本次「排除」没有保存。请先点底部「导出备份」并清理后再试。');
+    return;
+  }
   afterExcludeChange(r);
 }
 const EXCLUDE_REASONS = ['模糊不清', '重复', '与主体无关', '标注错误', '其他'];
@@ -2570,6 +2581,7 @@ function exportExcludedList() {
 // 过滤/排除后无可见行时:清空详情面板,避免对看不见的行做快捷操作
 function clearDetail() {
   state.index = -1;
+  { const xb = $('#exclude-btn'); if (xb) xb.disabled = true; document.querySelectorAll('.detail-foot [data-status]').forEach(b => { b.disabled = true; }); } // 无可显示项时禁用底部按钮，避免“假活按钮”点了没反应
   const img = $('#d-img'); if (img) { img.removeAttribute('src'); img.alt = ''; }
   if ($('#d-id')) $('#d-id').textContent = '-';
   if ($('#d-filename')) $('#d-filename').textContent = '(当前过滤无可显示项)';
@@ -2752,13 +2764,13 @@ function exportLSJSON() {
   let scale = 1, tx = 0, ty = 0, drag = false, sx = 0, sy = 0, moved = false;
   const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; img.style.cursor = scale > 1 ? 'grab' : 'zoom-out'; };
   const reset = () => { scale = 1; tx = 0; ty = 0; moved = false; apply(); };
-  new MutationObserver(() => { if (lb.classList.contains('show')) reset(); }).observe(lb, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(() => { reset(); }).observe(lb, { attributes: true, attributeFilter: ['class'] }); // 开/关灯箱都复位缩放，避免残留 scale 卡住
   lb.addEventListener('wheel', (e) => { e.preventDefault(); const d = e.deltaY < 0 ? 1.15 : 1 / 1.15; scale = Math.min(8, Math.max(1, scale * d)); if (scale === 1) { tx = 0; ty = 0; } apply(); }, { passive: false });
   img.addEventListener('mousedown', (e) => { if (scale <= 1) return; drag = true; moved = false; sx = e.clientX - tx; sy = e.clientY - ty; img.style.cursor = 'grabbing'; e.preventDefault(); });
   window.addEventListener('mousemove', (e) => { if (!drag) return; tx = e.clientX - sx; ty = e.clientY - sy; moved = true; apply(); });
   window.addEventListener('mouseup', () => { drag = false; if (scale > 1) img.style.cursor = 'grab'; });
   img.addEventListener('dblclick', (e) => { e.stopPropagation(); scale = scale > 1 ? 1 : 2; if (scale === 1) { tx = 0; ty = 0; } apply(); });
-  lb.addEventListener('click', (e) => { if (scale > 1 || moved) { e.stopPropagation(); moved = false; } }, true); // 缩放/拖动后点击不关闭
+  lb.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); moved = false; } }, true); // 仅“刚拖动过”的那一次点击不关闭；放大但未拖动时点击仍能关闭灯箱（否则放大后灯箱会卡死、全屏盖住下层删除按钮）
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lb.classList.contains('show')) lb.classList.remove('show'); });
 })();
 </script>
