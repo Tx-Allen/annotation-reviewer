@@ -147,3 +147,53 @@ test('D compare.html has a solid color-mix fallback', () => {
   const cmp = _rf(path.join(here, '..', 'compare.html'), 'utf8');
   assert.ok(/tr\.r-chg\{background:var\(--chg-bg\);background:color-mix/.test(cmp), 'color-mix fallback not found');
 });
+
+// ---------- Recycle-bin feature ----------
+test('Recycle: list / restore / count via Map-backed localStorage', () => {
+  const store = new Map();
+  const localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k),
+    clear: () => store.clear(),
+    key: i => { const a = [...store.keys()]; return i < a.length ? a[i] : null; },
+    get length() { return store.size; },
+  };
+  const reg = new Map();
+  const get = (s) => { if (!reg.has(s)) reg.set(s, makeEl()); return reg.get(s); };
+  const document = {
+    querySelector: get, getElementById: (id) => get('#' + id),
+    querySelectorAll: () => [], createElement: makeEl, documentElement: makeEl(), body: makeEl(), addEventListener() {},
+  };
+  const ctx = {
+    document, addEventListener() {}, removeEventListener() {}, localStorage, console, alert() {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    URL: { createObjectURL: () => 'blob:t', revokeObjectURL() {} },
+    matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
+    navigator: { userAgent: 'node' }, setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {},
+  };
+  ctx.globalThis = ctx; ctx.window = ctx; ctx.self = ctx;
+  vm.createContext(ctx); vm.runInContext(SRC, ctx, { filename: 'i.js' });
+
+  for (const [id, reason] of [['101', '模糊'], ['102', '重复']])
+    ctx.localStorage.setItem(ctx.excludeKey(id), JSON.stringify({ by: 't', at: '2026-06-02T03:00:00Z', reason }));
+  assert.equal(ctx.excludedCount(), 2);
+  assert.equal(ctx.listExcluded().length, 2);
+  ctx.refreshExcludedBtn();
+  assert.match(ctx.document.getElementById('recycle-bin').textContent, /已删除 \(2\)/);
+  ctx.restoreExcluded('101', false);                 // 撤回一张
+  assert.equal(ctx.excludedCount(), 1);
+  assert.equal(ctx.listExcluded()[0].id, '102');
+  ctx.restoreExcluded('102', false);                 // 撤回剩下
+  assert.equal(ctx.excludedCount(), 0);
+});
+const recycleContracts = [
+  ['openRecycleBin', /function openRecycleBin\(\)/],
+  ['undo bar after delete', /function showUndoBar\(id, label\)/],
+  ['doExclude shows undo bar', /showUndoBar\(r\.annotation_id/],
+  ['restore is non-destructive remove', /localStorage\.removeItem\(excludeKey\(id\)\)/],
+];
+for (const [name, re] of recycleContracts) {
+  test('feature present: ' + name, () => assert.ok(re.test(SRC), name + ' not found'));
+}
+test('feature present: recycle-bin button markup', () => assert.ok(/id="recycle-bin"/.test(html), 'button markup not found'));

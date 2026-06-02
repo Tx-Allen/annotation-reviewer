@@ -472,6 +472,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "S
         <button class="btn-link" id="compare-summary">对比汇总</button>
         <button class="btn-link" id="export-state2">备份进度</button>
         <button class="btn-link" id="export-excluded">导出被排除清单</button>
+        <button class="btn-link" id="recycle-bin" title="查看所有被删除/排除的图,可逐张或全部撤回">🗑 已删除</button>
         <button class="btn-link" id="reload-setup">重新加载</button>
       </div>
       <div id="autofix-bar" class="autofix-bar" style="display:none;"></div>
@@ -2585,6 +2586,7 @@ function exportAnnotateCSV() {
 function afterExcludeChange(r) {
   idxUpdate(r);
   renderList();
+  refreshExcludedBtn();
   if (passesFilter(r)) { selectIndex(state.index); }            // 恢复后(或正看「已排除」)留在原地刷新
   else { const n = nextVisibleIndex(state.index); const f = n >= 0 ? n : firstVisibleIndex(); if (f >= 0) selectIndex(f); else clearDetail(); }
 }
@@ -2594,6 +2596,7 @@ function doExclude(r, reason) {
     return;
   }
   afterExcludeChange(r);
+  try { showUndoBar(r.annotation_id, extractFilename(r[state.imageColumn] || '')); } catch (e) {}
 }
 const EXCLUDE_REASONS = ['模糊不清', '重复', '与主体无关', '标注错误', '其他'];
 function openExcludeReason(r) {
@@ -2750,6 +2753,104 @@ function showDupBanner(n) {
 }
 
 // ========== P1 内存状态索引(避免每次渲染都 O(N) 读 localStorage) ==========
+// ========== 「已删除」回收站(列表)+ 撤回 ==========
+function listExcluded() {
+  const prefix = `excluded:${state.csvName}:`;
+  const imgCol = state.imageColumn || 'image';
+  const byId = new Map((state.fullRows || []).map(x => [String(x.annotation_id), x]));
+  const out = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || k.indexOf(prefix) !== 0) continue;
+    const id = k.slice(prefix.length);
+    let o = {}; try { o = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) {}
+    const row = byId.get(String(id));
+    out.push({ id, img: row ? extractFilename(row[imgCol]) : '', reason: o.reason || '', by: o.by || '', at: o.at || '' });
+  }
+  out.sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))); // 最近删除的在前
+  return out;
+}
+function excludedCount() {
+  const prefix = `excluded:${state.csvName}:`;
+  let n = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(prefix) === 0) n++; } } catch (e) {}
+  return n;
+}
+function refreshExcludedBtn() {
+  const b = document.getElementById('recycle-bin'); if (!b) return;
+  const n = excludedCount();
+  b.textContent = n ? `🗑 已删除 (${n})` : '🗑 已删除';
+}
+// 撤回单张:删掉排除键、刷新内存索引/列表;andSelect 时若在当前抽样里就跳过去看
+function restoreExcluded(id, andSelect) {
+  try { localStorage.removeItem(excludeKey(id)); } catch (e) {}
+  let r = (state.rows || []).find(x => String(x.annotation_id) === String(id));
+  const inRows = !!r;
+  if (!r) r = (state.fullRows || []).find(x => String(x.annotation_id) === String(id));
+  if (r) idxUpdate(r);
+  renderList();
+  refreshExcludedBtn();
+  if (andSelect && inRows) { const i = state.rows.indexOf(r); if (i >= 0) selectIndex(i); }
+}
+function openRecycleBin() {
+  const old = document.getElementById('recycle-modal'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'recycle-modal'; m.className = 'modal show';
+  const thumbUrls = [];
+  const card = document.createElement('div');
+  card.style.cssText = 'background:var(--surface);border-radius:12px;padding:18px;max-width:560px;width:92%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 10px 40px var(--shadow);';
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:12px;';
+  const title = document.createElement('h3'); title.style.cssText = 'margin:0;flex:1;font-size:16px;';
+  const allBtn = document.createElement('button'); allBtn.className = 'btn-secondary'; allBtn.textContent = '全部撤回';
+  const xBtn = document.createElement('button'); xBtn.className = 'btn'; xBtn.textContent = '关闭';
+  head.append(title, allBtn, xBtn);
+  const listEl = document.createElement('div');
+  listEl.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:8px;';
+  card.append(head, listEl); m.append(card); document.body.appendChild(m);
+  const close = () => { thumbUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} }); m.remove(); };
+  function renderRows() {
+    const cur = listExcluded();
+    title.textContent = `🗑 已删除 (${cur.length})`;
+    allBtn.style.display = cur.length ? '' : 'none';
+    listEl.innerHTML = '';
+    if (!cur.length) { const e = document.createElement('div'); e.className = 'field-meta'; e.textContent = '(没有被删除的图)'; listEl.appendChild(e); return; }
+    cur.forEach(it => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:8px;';
+      const th = document.createElement('img');
+      th.style.cssText = 'width:46px;height:46px;object-fit:cover;border-radius:6px;background:var(--img-bg);flex:none;';
+      th.alt = '';
+      const file = it.img && state.imageMap.get(String(it.img).toLowerCase());
+      if (file) { try { const u = URL.createObjectURL(file); thumbUrls.push(u); th.src = u; } catch (e) {} }
+      const meta = document.createElement('div'); meta.style.cssText = 'flex:1;min-width:0;';
+      const fn = document.createElement('div'); fn.style.cssText = 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'; fn.textContent = it.img || ('#' + it.id);
+      const sub = document.createElement('div'); sub.className = 'field-meta'; sub.style.cssText = 'font-size:11px;'; sub.textContent = [it.reason, it.by, it.at ? String(it.at).slice(0, 10) : ''].filter(Boolean).join(' · ') || ('#' + it.id);
+      meta.append(fn, sub);
+      const btn = document.createElement('button'); btn.className = 'btn'; btn.textContent = '↩ 撤回'; btn.style.flex = 'none';
+      btn.onclick = () => { restoreExcluded(it.id, false); renderRows(); };
+      row.append(th, meta, btn); listEl.appendChild(row);
+    });
+  }
+  renderRows();
+  allBtn.onclick = () => { listExcluded().forEach(it => restoreExcluded(it.id, false)); renderRows(); };
+  xBtn.onclick = close;
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+  m.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  m.tabIndex = -1; m.focus();
+}
+// 删除后底部一键撤销上一次(用 textContent 防文件名注入)
+function showUndoBar(id, label) {
+  let b = document.getElementById('undo-bar');
+  if (!b) { b = document.createElement('div'); b.id = 'undo-bar'; b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:1002;background:var(--text);color:var(--surface);padding:8px 12px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center;max-width:90%;'; document.body.appendChild(b); }
+  b.innerHTML = '';
+  const span = document.createElement('span'); span.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'; span.textContent = '已排除「' + (label || ('#' + id)) + '」';
+  const btn = document.createElement('button'); btn.textContent = '↩ 撤回'; btn.style.cssText = 'background:none;border:1px solid currentColor;color:inherit;border-radius:5px;padding:3px 10px;cursor:pointer;font-weight:600;flex:none;';
+  btn.onclick = () => { restoreExcluded(id, true); b.remove(); };
+  b.append(span, btn);
+  clearTimeout(b._t); b._t = setTimeout(() => { try { b.remove(); } catch (e) {} }, 6000);
+}
+{ const _rb = $('#recycle-bin'); if (_rb) _rb.addEventListener('click', openRecycleBin); }
 function excludeKey(id) { return `excluded:${state.csvName}:${id}`; }
 function loadExcluded(id) { return !!localStorage.getItem(excludeKey(id)); }
 function loadExcludedObj(id) { try { return JSON.parse(localStorage.getItem(excludeKey(id))) || null; } catch (e) { return null; } }
@@ -2765,7 +2866,7 @@ function idxUpdate(r) {
     excluded: loadExcluded(id),
   });
 }
-function buildIndex() { state.idx = new Map(); state.rows.forEach(r => idxUpdate(r)); }
+function buildIndex() { state.idx = new Map(); state.rows.forEach(r => idxUpdate(r)); refreshExcludedBtn(); }
 function idxOf(r) { return state.idx ? state.idx.get(r.annotation_id) : null; }
 function idxReannot(r) { const e = idxOf(r); return e ? e.reannot : !!loadReannot(r.annotation_id); }
 function idxExcluded(r) { const e = idxOf(r); return e ? e.excluded : loadExcluded(r.annotation_id); }
