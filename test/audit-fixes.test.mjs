@@ -60,6 +60,14 @@ test('M1 csvToObjects keeps a column literally named "toString"/"constructor"', 
   assert.equal(rows[0].constructor, 'b');
   assert.equal(rows[0].id, '1');
 });
+test('M1 csvToObjects keeps a column literally named "__proto__"', () => {
+  const ctx = loadPage();
+  const { header, rows } = ctx.csvToObjects(ctx.parseCSV('__proto__,id\nliteral,1', ','));
+  assert.equal(header.join('|'), '__proto__|id');
+  assert.equal(Object.hasOwn(rows[0], '__proto__'), true);
+  assert.equal(rows[0].__proto__, 'literal');
+  assert.equal(rows[0].id, '1');
+});
 test('M1 genuine duplicate columns still get _2 suffix (unchanged behavior)', () => {
   const ctx = loadPage();
   const { header } = ctx.csvToObjects(ctx.parseCSV('x,x,y', ','));

@@ -590,7 +590,12 @@ function csvToObjects(rows) {
     const r = rows[i];
     if (!r.length || (r.length === 1 && !r[0])) continue;
     const o = {};
-    header.forEach((k, j) => { o[k] = deformula(r[j] !== undefined ? r[j] : ''); });
+    header.forEach((k, j) => {
+      Object.defineProperty(o, k, {
+        value: deformula(r[j] !== undefined ? r[j] : ''),
+        enumerable: true, writable: true, configurable: true
+      });
+    });
     if (r.length > header.length) { raggedRows++; raggedExtra = Math.max(raggedExtra, r.length - header.length); } // 列数多于表头:多余单元格被忽略,需告警
     out.push(o);
   }

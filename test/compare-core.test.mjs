@@ -2,6 +2,46 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { core } from './load-core.mjs';
 
+test('csvToObjects keeps Object.prototype-named columns intact', () => {
+  const { header, rows } = core.csvToObjects(core.parseCSV('toString,constructor,id\na,b,1', ','));
+  assert.deepEqual(header, ['toString', 'constructor', 'id']);
+  assert.equal(rows[0].toString, 'a');
+  assert.equal(rows[0].constructor, 'b');
+  assert.equal(rows[0].id, '1');
+});
+
+test('csvToObjects keeps a literal "__proto__" column as data', () => {
+  const { header, rows } = core.csvToObjects(core.parseCSV('__proto__,id\nliteral,1', ','));
+  assert.deepEqual(header, ['__proto__', 'id']);
+  assert.equal(Object.hasOwn(rows[0], '__proto__'), true);
+  assert.equal(rows[0].__proto__, 'literal');
+  assert.equal(rows[0].id, '1');
+});
+
+test('csvToObjects suffixes genuine duplicate columns', () => {
+  const { header, rows } = core.csvToObjects(core.parseCSV('x,x,y\n1,2,3', ','));
+  assert.deepEqual(header, ['x', 'x_2', 'y']);
+  assert.deepEqual(rows[0], { x: '1', x_2: '2', y: '3' });
+});
+
+test('sniffDelim ignores tabs inside quoted CSV fields', () => {
+  assert.equal(core.sniffDelim('"a\tb\tc\td",label,image\n1,2,3', 'data.csv'), ',');
+  assert.equal(core.sniffDelim('a\tb\tc\n1\t2\t3', 'data.csv'), '\t');
+  assert.equal(core.sniffDelim('whatever', 'x.tsv'), '\t');
+});
+
+test('csvToObjects removes csvQuote formula guard prefixes symmetrically', () => {
+  const { rows } = core.csvToObjects(core.parseCSV('col\n"\'\t1"\n"\'\r2"\n"\'+3"', ','));
+  assert.equal(rows[0].col, '\t1');
+  assert.equal(rows[1].col, '\r2');
+  assert.equal(rows[2].col, '+3');
+});
+
+test('csvToObjects warns when rows contain more cells than the header', () => {
+  core.csvToObjects(core.parseCSV('a\n1,2,3', ','));
+  assert.match(core.getLastCsvWarnings().join('\n'), /列数多于表头/);
+});
+
 test('headerIntersection keeps only columns present in all files, in first-file order', () => {
   const files = [
     { header: ['id', 'label', 'score', 'note'] },

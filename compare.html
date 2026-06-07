@@ -103,9 +103,19 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 let lastCsvWarnings = [];
 function sniffDelim(text, name){
   if(/\.tsv$/i.test(name||'')) return '\t';
-  const first=(String(text||'').split(/\r?\n/,1)[0])||'';
-  const tabs=(first.match(/\t/g)||[]).length, commas=(first.match(/,/g)||[]).length;
-  return tabs>commas?'\t':',';
+  const countFields = (s, d) => {
+    let n = 1, q = false;
+    for(let i=0;i<s.length;i++){
+      const c=s[i];
+      if(q){ if(c==='"'){ if(s[i+1]==='"') i++; else q=false; } }
+      else if(c==='"') q=true;
+      else if(c===d) n++;
+      else if(c==='\n') break;
+    }
+    return n;
+  };
+  const t=String(text||'');
+  return countFields(t,'\t')>countFields(t,',')?'\t':',';
 }
 function parseCSV(text, delim){
   delim=delim||','; lastCsvWarnings=[];
@@ -122,16 +132,19 @@ function parseCSV(text, delim){
 }
 function csvToObjects(rows){
   if(!rows.length) return {header:[],rows:[]};
-  const seen={};
+  const seen=Object.create(null);
   const header=rows[0].map(h=>{h=(h==null?'':h); if(seen[h]!=null){seen[h]+=1;return `${h}_${seen[h]}`;} seen[h]=1;return h;});
-  const deformula=s=>(typeof s==='string'&&/^'[=+\-@]/.test(s))?s.slice(1):s;
+  const deformula=s=>(typeof s==='string'&&/^'[=+\-@\t\r]/.test(s))?s.slice(1):s;
   const out=[];
+  let raggedRows=0, raggedExtra=0;
   for(let i=1;i<rows.length;i++){
     const r=rows[i];
     if(!r.length||(r.length===1&&!r[0])) continue;
-    const o={}; header.forEach((k,j)=>{o[k]=deformula(r[j]!==undefined?r[j]:'');});
+    const o={}; header.forEach((k,j)=>{Object.defineProperty(o,k,{value:deformula(r[j]!==undefined?r[j]:''),enumerable:true,writable:true,configurable:true});});
+    if(r.length>header.length){ raggedRows++; raggedExtra=Math.max(raggedExtra,r.length-header.length); }
     out.push(o);
   }
+  if(raggedRows) lastCsvWarnings.push(`有 ${raggedRows} 行列数多于表头(最多多 ${raggedExtra} 列),多余列已被忽略 — 检查是否漏给含分隔符的值加引号`);
   return {header,rows:out};
 }
 function csvQuote(v){
@@ -212,7 +225,7 @@ function computeNwayDiff(files, keyCol){
 }
 // ↓↓↓ collector MUST stay last; lists every pure fn the tests use ↓↓↓
 if (typeof globalThis.__COLLECT_CORE__ === 'function') {
-  globalThis.__COLLECT_CORE__({ sniffDelim, parseCSV, csvToObjects, csvQuote, headerIntersection, headerExtras, buildIndex, majorityOf, computeNwayDiff });
+  globalThis.__COLLECT_CORE__({ sniffDelim, parseCSV, csvToObjects, csvQuote, headerIntersection, headerExtras, buildIndex, majorityOf, computeNwayDiff, getLastCsvWarnings: () => lastCsvWarnings.slice() });
 }
 // ===== PURE CORE END =====
 

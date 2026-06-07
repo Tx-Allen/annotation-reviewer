@@ -127,9 +127,9 @@ def api_export():
             if k not in fieldnames:
                 fieldnames.append(k)
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
-    writer.writeheader()
+    writer.writerow({k: db.csv_safe_cell(k) for k in fieldnames})
     for r in rows:
-        writer.writerow(r)
+        writer.writerow({k: db.csv_safe_cell(r.get(k, "")) for k in fieldnames})
     return Response(
         buf.getvalue().encode("utf-8-sig"),
         mimetype="text/csv; charset=utf-8",

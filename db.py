@@ -6,6 +6,16 @@ import urllib.parse
 from datetime import datetime
 from typing import Optional
 
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe_cell(value):
+    if value is None:
+        return ""
+    s = str(value)
+    return "'" + s if s.startswith(CSV_FORMULA_PREFIXES) else s
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS annotation (
   annotation_id   INTEGER PRIMARY KEY,
@@ -26,6 +36,7 @@ CREATE TABLE IF NOT EXISTS review (
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_anno ON review(annotation_id, reviewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_review_anno_id ON review(annotation_id, id DESC);
 """
 
 
@@ -33,6 +44,7 @@ def connect(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     return conn
 
@@ -63,8 +75,8 @@ def _safe_edits(raw):
 def import_csv(conn: sqlite3.Connection, csv_path: str, reset: bool = False) -> int:
     cur = conn.cursor()
     if reset:
-        cur.execute("DELETE FROM annotation")
         cur.execute("DELETE FROM review")
+        cur.execute("DELETE FROM annotation")
 
     cur.execute("SELECT COUNT(*) AS n FROM annotation")
     if cur.fetchone()["n"] > 0 and not reset:
@@ -134,7 +146,7 @@ def get_item(conn: sqlite3.Connection, anno_id: int) -> Optional[dict]:
     if not a:
         return None
     r = conn.execute(
-        "SELECT * FROM review WHERE annotation_id = ? ORDER BY reviewed_at DESC LIMIT 1",
+        "SELECT * FROM review WHERE annotation_id = ? ORDER BY id DESC LIMIT 1",
         (anno_id,),
     ).fetchone()
     latest = None
@@ -164,6 +176,11 @@ def save_review(
 ) -> int:
     if status not in ("pass", "fail", "doubt"):
         raise ValueError(f"invalid status: {status}")
+    exists = conn.execute(
+        "SELECT 1 FROM annotation WHERE annotation_id = ?", (annotation_id,)
+    ).fetchone()
+    if not exists:
+        raise ValueError(f"annotation_id not found: {annotation_id}")
     now = datetime.utcnow().isoformat()
     edits_json = json.dumps(edits, ensure_ascii=False) if edits else None
     cur = conn.execute(
@@ -182,7 +199,7 @@ def export_rows(conn: sqlite3.Connection):
         payload = it["payload"]
         latest = None
         r = conn.execute(
-            "SELECT * FROM review WHERE annotation_id = ? ORDER BY reviewed_at DESC LIMIT 1",
+            "SELECT * FROM review WHERE annotation_id = ? ORDER BY id DESC LIMIT 1",
             (it["annotation_id"],),
         ).fetchone()
         if r:
