@@ -611,6 +611,72 @@ function extractFilename(url) {
   return s.split('/').pop();
 }
 
+function canonicalImageFilename(filename) {
+  return String(filename || '').replace(/^\d{4}_(?=.+)/, '');
+}
+function imageKeyCandidates(value) {
+  const fn = extractFilename(value);
+  if (!fn) return [];
+  const exact = fn.toLowerCase();
+  const canonical = canonicalImageFilename(fn).toLowerCase();
+  return exact === canonical ? [exact] : [exact, canonical];
+}
+function addImageFile(file, name) {
+  const fn = extractFilename(name || (file && file.name) || '');
+  if (!fn || !file) return;
+  const exact = fn.toLowerCase();
+  state.imageMap.set(exact, file);
+  const canonical = canonicalImageFilename(fn).toLowerCase();
+  if (canonical && !state.imageAliasMap.has(canonical)) state.imageAliasMap.set(canonical, exact);
+}
+function findImageFile(value) {
+  const inputKey = (extractFilename(value) || '').toLowerCase();
+  for (const key of imageKeyCandidates(value)) {
+    const exact = state.imageMap.get(key);
+    if (exact) return { key, file: exact, matchType: key === inputKey ? 'exact' : 'prefix' };
+    const aliased = state.imageAliasMap.get(key);
+    if (aliased) {
+      const file = state.imageMap.get(aliased);
+      if (file) return { key: aliased, file, matchType: aliased === inputKey ? 'exact' : 'prefix' };
+    }
+  }
+  return null;
+}
+function hasImageFile(value) {
+  return !!findImageFile(value);
+}
+function imageMatchStats(rows, col) {
+  const stats = { total: rows.length, exact: 0, prefix: 0, missing: 0, empty: 0 };
+  rows.forEach(r => {
+    const fn = extractFilename(r[col]);
+    if (!fn) { stats.empty++; return; }
+    const hit = findImageFile(fn);
+    if (!hit) stats.missing++;
+    else if (hit.matchType === 'exact') stats.exact++;
+    else stats.prefix++;
+  });
+  stats.matched = stats.exact + stats.prefix;
+  return stats;
+}
+function imageMatchStatusText(subject, stats, imageCount, unit = '张') {
+  let msg = `${subject}${stats.matched}/${stats.total} ${unit}能匹配`;
+  if (stats.prefix) msg += `，其中 ${stats.prefix} ${unit}是恢复包数字前缀不一致，已自动按原文件名兼容`;
+  if (stats.missing) msg += `；仍有 ${stats.missing} ${unit}找不到图，请补选对应图片包/文件夹`;
+  if (imageCount != null) msg += `（当前已加载 ${imageCount} 个图片文件）`;
+  return msg;
+}
+function addImageNameLookup(map, value, item) {
+  imageKeyCandidates(value).forEach(key => {
+    if (!map.has(key)) map.set(key, item);
+  });
+}
+function findImageNameLookup(map, value) {
+  for (const key of imageKeyCandidates(value)) {
+    if (map.has(key)) return map.get(key);
+  }
+  return null;
+}
+
 function csvQuote(v) {
   v = String(v ?? '');
   if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; // CSV 公式注入防护(CWE-1236):Excel/Sheets 打开不当公式执行;导入侧对称去前缀,往返字节稳定
@@ -1032,6 +1098,7 @@ const state = {
   totalRows: 0,
   options: {},
   imageMap: new Map(),
+  imageAliasMap: new Map(),
   imageColumn: '',
   index: -1,
   filter: 'all',
@@ -1201,10 +1268,19 @@ function reprocessPendingCSV() {
 }
 
 function updateButtons() {
-  const ready = !!pendingCSV && state.imageMap.size > 0;
-  startBtn.disabled = !ready;
+  const ready = reviewStartReady();
+  startBtn.disabled = !ready.ok;
+  startBtn.title = ready.reason || '开始核对';
   distributeBtn.disabled = !pendingCSV; // 分包不需要图片文件夹(只产 JSON)
   const ab = $('#annotate-btn'); if (ab) ab.disabled = state.imageMap.size === 0; // 只要有图片就能从零标注
+}
+function reviewStartReady() {
+  if (!pendingCSV) return { ok: false, reason: '先选择 CSV' };
+  if (!state.imageMap.size) return { ok: false, reason: '先选择图片文件夹' };
+  const col = $('#col-input').value || 'image';
+  const stats = imageMatchStats(pendingCSV.rows, col);
+  if (!stats.matched) return { ok: false, reason: `当前图片列「${col}」没有匹配到图片` };
+  return { ok: true, reason: '' };
 }
 
 csvInput.addEventListener('change', async (e) => {
@@ -1225,7 +1301,7 @@ csvInput.addEventListener('change', async (e) => {
 folderInput.addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
   resetImageMap();
-  files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
+  files.forEach(f => addImageFile(f));
   annotateFolderName = ((files[0] && files[0].webkitRelativePath) || '').split('/')[0] || '';
   $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
   $('#folder-status').className = 'status ok';
@@ -1283,35 +1359,31 @@ function updateColumnDetection() {
   row.style.display = 'flex';
   const total = pendingCSV.rows.length;
   const scores = pendingCSV.header.map(col => {
-    let matched = 0;
-    pendingCSV.rows.forEach(r => {
-      const v = (r[col] || '').trim();
-      if (!v) return;
-      const fn = extractFilename(v);
-      if (fn && state.imageMap.has(fn.toLowerCase())) matched++;
-    });
-    return { col, matched };
+    const stats = imageMatchStats(pendingCSV.rows, col);
+    return { col, matched: stats.matched, stats };
   });
   scores.sort((a, b) => b.matched - a.matched);
   const sel = $('#col-input');
   sel.innerHTML = '';
-  scores.forEach(({ col, matched }) => {
+  scores.forEach(({ col, stats }) => {
     const opt = document.createElement('option');
     opt.value = col;
-    opt.textContent = `${col}  (匹配 ${matched}/${total} CSV 行)`;
+    opt.textContent = `${col}  (匹配 ${stats.matched}/${total}${stats.prefix ? `，去编号 ${stats.prefix}` : ''})`;
     sel.appendChild(opt);
   });
   const best = scores[0];
   const stat = $('#col-status');
   if (best.matched > 0) {
     sel.value = best.col;
-    stat.textContent = `✓ 自动选中 "${best.col}" — CSV ${total} 行,${best.matched} 行能在文件夹(${state.imageMap.size} 文件)里找到图`;
+    stat.textContent = `✓ 自动选中 "${best.col}" — ` + imageMatchStatusText(`CSV ${total} 行，`, best.stats, state.imageMap.size, '行');
     stat.className = 'status ok';
   } else {
     stat.textContent = `⚠ CSV ${total} 行没有一行能匹配文件夹里的图(${state.imageMap.size} 文件)。检查是不是文件夹选错了。`;
     stat.className = 'status err';
   }
+  updateButtons();
 }
+$('#col-input').addEventListener('change', updateButtons);
 
 // 从启动页设置算出当前抽样 ids
 // 规则:数据有问题的行 100% 全审(不参与抽样),其余从干净行里按设置抽
@@ -1345,6 +1417,8 @@ function currentSampleIds() {
 }
 
 startBtn.addEventListener('click', () => {
+  const ready = reviewStartReady();
+  if (!ready.ok) { alert(ready.reason); return; }
   state.csvName = pendingCSV.name;
   guardDatasetIdentity(pendingCSV.name, pendingCSV.header, pendingCSV.rows.length); // H1:同名不同内容数据集告警
   state.header = pendingCSV.header;
@@ -1445,8 +1519,10 @@ $('#dist-go').addEventListener('click', () => {
       for (const r of chunks[i]) {
         const fn = extractFilename(r[imgCol]); if (!fn) continue;
         const lc = fn.toLowerCase();
-        const file = state.imageMap.get(lc);
-        if (file && !seen.has(lc)) { seen.add(lc); files.push({ name: 'images/' + fn, data: new Uint8Array(await file.arrayBuffer()) }); }
+        const hit = findImageFile(fn);
+        const file = hit && hit.file;
+        const seenKey = hit ? hit.key : lc;
+        if (file && !seen.has(seenKey)) { seen.add(seenKey); files.push({ name: 'images/' + fn, data: new Uint8Array(await file.arrayBuffer()) }); }
       }
       downloadBlob(`pack-${safeName}.zip`, makeZip(files));
     }
@@ -1488,7 +1564,7 @@ $('#pack-input').addEventListener('change', async (e) => {
       entries.forEach(en => {
         if (/\.(jpe?g|png|webp|gif|bmp|avif|jfif)$/i.test(en.name)) {
           const base = en.name.split('/').pop();
-          state.imageMap.set(base.toLowerCase(), new File([en.data], base));
+          addImageFile(new File([en.data], base));
         }
       });
       // 4.4 降内存峰值:imageMap 已持有图片副本,释放 readZip 解压数组里的第二份拷贝;大图集给出警告
@@ -1537,17 +1613,16 @@ $('#pack-cancel-btn').addEventListener('click', () => {
 
 function packFolderReady(srcLabel) {
   const col = pendingPack.image_column || 'image';
-  let matched = 0;
-  pendingPack.sample_rows.forEach(r => { const fn = extractFilename(r[col]); if (fn && state.imageMap.has(fn.toLowerCase())) matched++; });
+  const stats = imageMatchStats(pendingPack.sample_rows, col);
   const stat = $('#pack-folder-status');
-  stat.textContent = `✓ ${srcLabel} · 你的任务包里 ${matched}/${pendingPack.sample_rows.length} 张能匹配`;
-  stat.className = matched > 0 ? 'status ok' : 'status err';
-  $('#pack-start-btn').disabled = matched === 0;
+  stat.textContent = `✓ ${srcLabel} · ` + imageMatchStatusText('你的任务包里 ', stats, null, '张');
+  stat.className = stats.matched > 0 ? 'status ok' : 'status err';
+  $('#pack-start-btn').disabled = stats.matched === 0;
 }
 $('#pack-folder-input').addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
   resetImageMap();
-  files.forEach(f => state.imageMap.set(f.name.toLowerCase(), f));
+  files.forEach(f => addImageFile(f));
   packFolderReady(files.length + ' 个文件');
 });
 
@@ -1779,7 +1854,7 @@ function setPendingCSVFromText(text, name) {
 }
 function setImageMapFromFiles(files) {
   resetImageMap();
-  files.forEach(f => state.imageMap.set((f.name || '').toLowerCase(), f));
+  files.forEach(f => addImageFile(f));
   $('#folder-status').textContent = `✓ ${files.length} 个文件已加载`;
   $('#folder-status').className = 'status ok';
   updateColumnDetection();
@@ -2000,8 +2075,9 @@ function selectIndex(idx) {
   badge.className = 'badge ' + (status || '');
   badge.textContent = statusLabel(status);
 
-  const fnKey = fn.toLowerCase();
-  const file = state.imageMap.get(fnKey);
+  const imgHit = findImageFile(fn);
+  const fnKey = imgHit ? imgHit.key : fn.toLowerCase();
+  const file = imgHit && imgHit.file;
   const img = $('#d-img');
   if (file) {
     const url = cacheImgUrl(fnKey, file);
@@ -2010,9 +2086,8 @@ function selectIndex(idx) {
     // 预取上一张/下一张:前后翻页都顺,且 LRU 升到 64 不会把刚建的 URL 抖掉(L4)
     [nextVisibleIndex(idx), prevVisibleIndex(idx)].forEach(ni => {
       if (ni < 0) return;
-      const nk = extractFilename(state.rows[ni][state.imageColumn]).toLowerCase();
-      const nf = state.imageMap.get(nk);
-      if (nf) cacheImgUrl(nk, nf);
+      const nh = findImageFile(state.rows[ni][state.imageColumn]);
+      if (nh) cacheImgUrl(nh.key, nh.file);
     });
   } else {
     img.removeAttribute('src');
@@ -2623,12 +2698,12 @@ async function importAnnotateCSV(file) {
   const parsed = csvToObjects(parseCSV(text, sniffDelim(text, file.name)));
   if (!parsed.rows.length) { alert('这个 CSV 没有数据行。'); return; }
   const byName = new Map();
-  state.rows.forEach(r => byName.set(String(r.annotation_id).toLowerCase(), r));
+  state.rows.forEach(r => addImageNameLookup(byName, r.annotation_id, r));
   // 1) 找图片列:与当前图片文件夹文件名匹配最多的那一列
   let imgCol = null, best = -1;
   parsed.header.forEach(col => {
     let m = 0;
-    parsed.rows.forEach(r => { const fn = extractFilename(r[col] || ''); if (fn && byName.has(fn.toLowerCase())) m++; });
+    parsed.rows.forEach(r => { const fn = extractFilename(r[col] || ''); if (fn && findImageNameLookup(byName, fn)) m++; });
     if (m > best) { best = m; imgCol = col; }
   });
   if (best <= 0) { alert('CSV 里没有一列的文件名能对上当前图片文件夹。\n请确认:① 选的是同一个图片文件夹;② CSV 里有图片文件名那一列(如 image)。'); return; }
@@ -2643,7 +2718,7 @@ async function importAnnotateCSV(file) {
   let ok = 0, skip = 0, full = false;
   parsed.rows.forEach(row => {
     const fn = extractFilename(row[imgCol] || '');
-    const r = fn ? byName.get(fn.toLowerCase()) : null;
+    const r = fn ? findImageNameLookup(byName, fn) : null;
     if (!r) { skip++; return; }
     const values = {};
     fieldCols.forEach(k => { const v = row[k]; if (v != null && String(v).trim() !== '') values[k] = v; });
@@ -2909,7 +2984,8 @@ function openRecycleBin() {
       const th = document.createElement('img');
       th.style.cssText = 'width:46px;height:46px;object-fit:cover;border-radius:6px;background:var(--img-bg);flex:none;';
       th.alt = '';
-      const file = it.img && state.imageMap.get(String(it.img).toLowerCase());
+      const hit = it.img && findImageFile(it.img);
+      const file = hit && hit.file;
       if (file) { try { const u = URL.createObjectURL(file); thumbUrls.push(u); th.src = u; } catch (e) {} }
       const meta = document.createElement('div'); meta.style.cssText = 'flex:1;min-width:0;';
       const fn = document.createElement('div'); fn.style.cssText = 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'; fn.textContent = it.img || ('#' + it.id);
@@ -2963,6 +3039,7 @@ function resetImageMap() {
   imgUrlCache.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
   imgUrlCache.clear();
   state.imageMap.clear();
+  state.imageAliasMap.clear();
 }
 // 图片 object-URL LRU(长会话避免内存暴涨/崩页)
 function cacheImgUrl(key, file) {

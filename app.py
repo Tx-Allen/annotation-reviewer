@@ -110,7 +110,7 @@ def img(filename):
     root = CONFIG.get("img_root")
     if not root or not os.path.isdir(root):
         abort(404)
-    safe_name = os.path.basename(filename)
+    safe_name = db.resolve_image_filename(root, filename)
     return send_from_directory(root, safe_name)
 
 

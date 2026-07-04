@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 import sqlite3
 import urllib.parse
 from datetime import datetime
@@ -59,6 +60,20 @@ def extract_filename(image_url: str) -> str:
         decoded = decoded.split("?d=", 1)[1]
     decoded = decoded.replace("\\", "/")
     return decoded.rsplit("/", 1)[-1]
+
+
+def resolve_image_filename(root: str, filename: str) -> str:
+    safe_name = os.path.basename(filename)
+    if os.path.isfile(os.path.join(root, safe_name)):
+        return safe_name
+    prefix_re = re.compile(r"^\d{4}_" + re.escape(safe_name) + r"$", re.IGNORECASE)
+    try:
+        for name in os.listdir(root):
+            if prefix_re.match(name) and os.path.isfile(os.path.join(root, name)):
+                return name
+    except OSError:
+        return safe_name
+    return safe_name
 
 
 def _safe_edits(raw):

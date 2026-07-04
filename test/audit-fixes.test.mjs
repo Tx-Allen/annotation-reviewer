@@ -91,6 +91,16 @@ test('L2 deformula symmetric: leading quote before TAB is stripped on import', (
   assert.equal(r2[0].col, '=1+1');
 });
 
+test('image matching accepts recovered pack numeric prefixes', () => {
+  const ctx = loadPage();
+  ctx.addImageFile({ name: '0001_europeana_foo.jpg' });
+  assert.equal(ctx.canonicalImageFilename('0001_europeana_foo.jpg'), 'europeana_foo.jpg');
+  assert.equal(ctx.hasImageFile('images/europeana_foo.jpg'), true);
+  const hit = ctx.findImageFile('/data/local-files/?d=images%5Ceuropeana_foo.jpg');
+  assert.equal(hit.file.name, '0001_europeana_foo.jpg');
+  assert.equal(hit.matchType, 'prefix');
+});
+
 const contracts = [
   ['M1 null-proto seen', /const seen = Object\.create\(null\)/],
   ['M2 ragged warning', /行列数多于表头/],

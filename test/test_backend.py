@@ -102,5 +102,29 @@ class CsvExportSafetyTest(unittest.TestCase):
         self.assertIn("1,'=1+1", buf.getvalue())
 
 
+class ImagePathResolutionTest(unittest.TestCase):
+    def test_resolve_image_filename_accepts_recovered_pack_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefixed = os.path.join(tmp, "0001_europeana_foo.jpg")
+            with open(prefixed, "wb") as f:
+                f.write(b"x")
+
+            self.assertEqual(
+                db.resolve_image_filename(tmp, "europeana_foo.jpg"),
+                "0001_europeana_foo.jpg",
+            )
+
+    def test_resolve_image_filename_prefers_exact_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("europeana_foo.jpg", "0001_europeana_foo.jpg"):
+                with open(os.path.join(tmp, name), "wb") as f:
+                    f.write(b"x")
+
+            self.assertEqual(
+                db.resolve_image_filename(tmp, "europeana_foo.jpg"),
+                "europeana_foo.jpg",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
